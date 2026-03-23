@@ -19,7 +19,9 @@ carsharing/
 ## 2. Komponenten
 
 ### Backend (`/backend`)
-- **Technologie:** Rust
+- **Technologie:** Rust (Axum Framework)
+- **Datenbank:** **SQLite** (lokale Datei `database.db`)
+- **Datenbank-Treiber:** **sqlx** (für asynchrone SQL-Abfragen mit Compile-Zeit-Check)
 - **Aufgabe:** Verarbeitung der Geschäftslogik, Datenbankanbindung und Bereitstellung der REST-API.
 - **Port:** Läuft standardmäßig auf Port `3000`.
 - **Deployment:** Wird als Systemd-Service (`carsharing.service`) auf dem Server verwaltet.
@@ -27,6 +29,7 @@ carsharing/
 ### Frontend (`/frontend`)
 - **Technologie:** Rust mit dem **Yew-Framework**.
 - **Kompilierung:** Wird zu WebAssembly (WASM) kompiliert.
+- **Funktionalität:** Bietet eine interaktive Weboberfläche zur Fahrzeugverwaltung, Reservierung und ein **Simulations-Tab** zur Echtzeit-Simulation der Fahrzeugnutzung.
 - **Auslieferung:** Die statischen Dateien (`index.html`, `.wasm`, `.js`) liegen im Ordner `dist/` und werden direkt vom Nginx-Webserver ausgeliefert.
 
 ---
