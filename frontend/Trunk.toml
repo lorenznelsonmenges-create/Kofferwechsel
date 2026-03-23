@@ -2,5 +2,4 @@
         target = "index.html"
    
         [tools]
-        # Hier zwingen wir Trunk, die exakte Version zu nehmen, die dein Code braucht
-        wasm_bindgen = "0.2.108"
+        wasm_bindgen = "0.2.114"
