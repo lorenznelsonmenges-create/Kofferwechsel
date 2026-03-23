@@ -621,6 +621,7 @@ fn app() -> Html {
                 { sidebar_button(&tab, Tab::Cars, "🚗", "Cars", set_tab_cars) }
                 { sidebar_button(&tab, Tab::Reservations, "📅", "Reservations", set_tab_res) }
                 { sidebar_button(&tab, Tab::Rentals, "⇄", "Active Rentals", set_tab_rentals) }
+                { sidebar_button(&tab, Tab::Simulation, "⚙️", "Simulation", set_tab_sim) }
 
             </aside>
 
