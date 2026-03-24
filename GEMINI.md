@@ -8,41 +8,32 @@
 Spezialisierte **Auftragsverwaltung für Kofferwechsel** (ehemals Carsharing-Backend).
 
 ## 🛠 Aktueller Stand (März 2026)
-1. **Backend:** Persistent via **SQLite** (`sqlx`). API-Endpunkte für State-Management, Image-Upload und Bild-Löschung (`/api/delete-image`).
-2. **Datenmodell:** Aufträge enthalten Koffer-Daten, Altfahrzeug-Daten, Neufahrzeug-Daten, Teilelisten (mit Produktlinks) und Bilder.
-3. **Status-Logik:** Die Status-Optionen sind: `Angenommen`, `InArbeit`, `Bereitstellung`, `Abgeschlossen` und `Storniert`.
-4. **Archivierung:** Aufträge mit Status `Abgeschlossen` oder `Storniert` werden automatisch im Archiv angezeigt und aus der aktiven Auftragsverwaltung entfernt. Reaktivierung über Status-Dropdown in den Details möglich.
-5. **API:** Nutzt Axum 0.8. Absolute URLs (`http://127.0.0.1:3000`) werden im Frontend bevorzugt.
+1. **Backend:** Persistent via **SQLite** (`sqlx`). API-Endpunkte für State, Image-Upload und Löschung.
+2. **Datenmodell:** Aufträge enthalten Koffer-Daten, Altfahrzeug-Daten, Neufahrzeug-Daten, Teilelisten und Bilder.
+3. **Status-Logik:** `Angenommen`, `InArbeit`, `Bereitstellung` (aktiv) sowie `Abgeschlossen` und `Storniert` (Archiv).
+4. **Automatisierung:** 
+    - **Daten:** Startdatum wird bei Erstellung automatisch erfasst (editierbar). Abschlussdatum wird bei Statusänderung auf "Abgeschlossen" automatisch gesetzt.
+    - **Format:** Datumsangaben konsequent in **TT.MM.JJJJ**.
+5. **Archivierung:** Automatischer Transfer ins Archiv bei Abschluss/Stornierung. Reaktivierung über Status-Dropdown möglich.
 
 ## 🎨 UI/UX Konventionen (WICHTIG)
 - **Name:** Die Software heißt offiziell **"Kofferwechsel-Software"**.
-- **Sidebar:** Der Software-Name oben links führt per Klick zurück zum Dashboard.
 - **Auftragsverwaltung:** 
-    - Suche dient als Navigation ("Jump-to-Details") via Auftragsnummer (nur Nummern-Vorschläge).
-    - Status-Dropdowns sind farblich codiert (Blau, Orange, Lila, Grün, Rot).
-    - Dropdowns haben einen visuellen Pfeil-Indikator (dynamisches SVG).
-    - Mülleimer-Symbol ermöglicht das Löschen von Aufträgen (mit Confirm-Dialog).
-    - Hinweistext erscheint, wenn keine aktiven Aufträge vorhanden sind.
+    - Suche via Auftragsnummer (nur Nummern-Vorschläge).
+    - Status-Dropdowns farblich codiert (Blau, Orange, Lila, Grün, Rot) mit Pfeil-Indikator.
+    - Info-Texte erscheinen, wenn Listen leer sind ("Keine aktiven Aufträge vorhanden").
 - **Detailansicht (Spezifikation):**
-    - **Kunde & Auftragsnummer** stehen prominent nebeneinander ganz oben.
-    - **Teileliste:** Steht ganz oben. Enthält Bezeichnung, Artikel-Nr, Händler und Produktlink (Icon öffnet neuen Tab). Teile können gelöscht werden.
-    - **Bilder & Dokumente:** Werden via **Drag & Drop** hochgeladen. Anzeige als schlanke Liste mit Dateinamen.
-    - **Vorschau:** Klick auf Dateiname öffnet Lightbox-Vorschau. Speicher-Icon öffnet Datei in neuem Tab.
-    - **Umsatzerwartung:** Separate Karte ganz unten.
+    - Kunde & Auftragsnummer prominent oben.
+    - Teileliste (Bezeichnung, Art-Nr, Händler, Produktlink) inkl. Löschfunktion.
+    - Dokumentenliste mit Lightbox-Vorschau und "In neuem Tab öffnen"-Funktion.
 - **Formular "Neuer Auftrag":**
-    - **Validierung:** Button erst aktiv, wenn alle Felder (inkl. Baujahr/KM) explizit ausgefüllt sind (0 ist erlaubt).
-    - **Eindeutigkeit:** Auftragsnummern werden auf Dubletten geprüft (Warnung + Sperre).
-    - **Reset:** Felder werden nach Anlegen automatisch geleert (Controlled Components).
-    - **Labels:** Begriffe "Altes Fahrzeug" und "Neues Fahrzeug" verwenden.
-    - **Zahlenfelder:** Keine Spin-Buttons (Hoch/Runter-Pfeile) sichtbar.
+    - Validierung: Alle Felder inkl. KM und Baujahr sind Pflicht (0 erlaubt).
+    - Dublettenprüfung für Auftragsnummern.
 
 ## 🚀 Roadmap
-- **KI-Unterstützung:** Integration einer Logik, die basierend auf Kunden/Koffer vergleichbare Altaufträge findet, um Teilelisten automatisch vorzubereiten.
+- **Nächster Schritt:** Anpassung der **Zeilenbeschriftungen in der Detailansicht**, um die Lesbarkeit der technischen Daten zu erhöhen.
+- **KI-Unterstützung:** Integration einer Logik zur Suche vergleichbarer Altaufträge.
 
 ## 📌 Technische Regeln & Datensicherheit
 - **Typ-Sicherheit:** Strukturen mit `f64` dürfen NIEMALS `Eq` ableiten (nur `PartialEq`).
-- **Build-Prozess:** Frontend via `trunk build`, Backend via `cargo run`.
-- **Datenintegrität (KRITISCH):** 
-    - In der Produktion darf die `.db` NIEMALS gelöscht werden. 
-    - Schema-Änderungen im Rust-Code (Enums/Structs) führen zu Deserialisierungsfehlern in alten DB-Beständen -> Zukünftig SQLx-Migrationen nutzen.
-    - Backups: Backend Snapshots einplanen.
+- **Datenintegrität:** In Produktion `.db` niemals löschen. Zukünftig SQLx-Migrationen für Schema-Änderungen nutzen.

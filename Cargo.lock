@@ -1676,8 +1676,10 @@ name = "rust-frontend"
 version = "0.1.0"
 dependencies = [
  "gloo-net 0.6.0",
+ "js-sys",
  "serde",
  "serde_json",
+ "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
  "yew",
