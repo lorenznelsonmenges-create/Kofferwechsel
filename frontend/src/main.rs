@@ -84,7 +84,6 @@ fn app() -> Html {
             let pu: f64 = ak.iter().map(|a| a.umsatz).sum();
 
             let mut vorschlaege: Vec<String> = management.auftraege.iter().filter(|a| a.status != AuftragsStatus::Archiviert).map(|a| a.auftrags_nummer.clone()).collect();
-            vorschlaege.extend(management.auftraege.iter().filter(|a| a.status != AuftragsStatus::Archiviert).map(|a| a.auftraggeber.name.clone()));
             vorschlaege.sort();
             vorschlaege.dedup();
 
@@ -126,7 +125,6 @@ fn app() -> Html {
         Tab::Cockpit => {
             let gef = management.auftraege.iter().filter(|a| a.status != AuftragsStatus::Archiviert).collect::<Vec<_>>();
             let mut vorschlaege: Vec<String> = management.auftraege.iter().filter(|a| a.status != AuftragsStatus::Archiviert).map(|a| a.auftrags_nummer.clone()).collect();
-            vorschlaege.extend(management.auftraege.iter().filter(|a| a.status != AuftragsStatus::Archiviert).map(|a| a.auftraggeber.name.clone()));
             vorschlaege.sort(); vorschlaege.dedup();
 
             html! {
