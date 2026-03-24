@@ -2,11 +2,11 @@
 <html lang="de">
   <head>
     <meta charset="utf-8" />
-    <title>Carsharing UI</title>
+    <title>Kofferwechsel-Software</title>
     
 <script type="module">
-import init, * as bindings from '/rust-frontend-67f3c0ec90faf3da.js';
-const wasm = await init({ module_or_path: '/rust-frontend-67f3c0ec90faf3da_bg.wasm' });
+import init, * as bindings from '/rust-frontend-f29815b750586aa8.js';
+const wasm = await init({ module_or_path: '/rust-frontend-f29815b750586aa8_bg.wasm' });
 
 
 window.wasmBindings = bindings;
@@ -16,6 +16,17 @@ dispatchEvent(new CustomEvent("TrunkApplicationStarted", {detail: {wasm}}));
 
 </script>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <link rel="modulepreload" href="/rust-frontend-67f3c0ec90faf3da.js" crossorigin="anonymous" integrity="sha384-sChL4Utmv3HjMxFl4I4UD14byEACjTC0wO9ZXERKFIlr+I4xHi4bzEJUPoo9rOeX"><link rel="preload" href="/rust-frontend-67f3c0ec90faf3da_bg.wasm" crossorigin="anonymous" integrity="sha384-/OPIR80mBR/Fv+BvZZIZttdOie998jv9HF06RNoGLxp8Prm3oaYwPamXh4/M38uq" as="fetch" type="application/wasm"></head>
+    <style>
+      /* Entfernt die Spin-Buttons (Pfeile) bei Input Feldern vom Typ number */
+      input::-webkit-outer-spin-button,
+      input::-webkit-inner-spin-button {
+        -webkit-appearance: none;
+        margin: 0;
+      }
+      input[type=number] {
+        -moz-appearance: textfield;
+      }
+    </style>
+  <link rel="modulepreload" href="/rust-frontend-f29815b750586aa8.js" crossorigin="anonymous" integrity="sha384-Lb1mxrf9zIGvhZhTaz1SafdJVpoZfuCXznZZ6CUi8i98f1BJXtviuqL+eSkz+CwE"><link rel="preload" href="/rust-frontend-f29815b750586aa8_bg.wasm" crossorigin="anonymous" integrity="sha384-21xMryZfGpz86zSnCWBDTsAK2FydFswKoKdhygOWimqKTxs6WQKciW5S6rHBsVEM" as="fetch" type="application/wasm"></head>
   <body></body>
 </html>

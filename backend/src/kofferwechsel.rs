@@ -22,7 +22,7 @@ pub struct Bestellteil {
     pub name: String,
     pub artikel_nummer: String,
     pub haendler: String,
-    pub status: BestellStatus,
+    pub produkt_link: Option<String>,
 }
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize, Debug)]

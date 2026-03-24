@@ -1,47 +1,39 @@
-# Projekt-Gedächtnis: Kofferwechsel (Sonderfahrzeuge)
+# Projekt-Gedächtnis: Kofferwechsel-Software (Sonderfahrzeuge)
 
 ## 🚚 Was ist ein Kofferwechsel?
-- **Fahrzeugtyp:** Fokus liegt auf **Rettungswägen (RTW)**.
-- **Konzept:** Der Koffer (der medizinische Spezialaufbau) ist wesentlich langlebiger und teurer als das darunterliegende Fahrgestell (Chassis).
-- **Prozess:** Ähnlich einer "Organtransplantation" wird der wertvolle Koffer vom alten, verschlissenen Fahrgestell abgenommen, bei Bedarf generalüberholt und auf ein fabrikneues Chassis montiert ("Hochzeit").
-- **Ziel:** Massive Kosten- und Ressourceneinsparung, da nur das Verschleißteil (Auto) ersetzt wird, während das Kernstück (der Koffer) erhalten bleibt.
+- **Konzept:** Der wertvolle medizinische Koffer (RTW) wird auf ein neues Fahrgestell ("Chassis") ummontiert ("Hochzeit").
+- **Ziel:** Kosten- und Ressourceneinsparung durch Erhalt des teuren Spezialaufbaus.
 
 ## 🎯 Hauptziel
-Umbau des bestehenden Carsharing-Backends zu einer spezialisierten **Auftragsverwaltung für Kofferwechsel bei Sonderfahrzeugen**.
+Spezialisierte **Auftragsverwaltung für Kofferwechsel** (ehemals Carsharing-Backend).
 
-## 🛠 Aktueller Fokus & Architektur
-1. **Entfernung der Simulation:** Das System soll von einem simulierten Verhalten auf ein reales, persistentes Programm umgestellt werden.
-2. **Backend-Refactoring:** Umstellung der Logik von "Fahrzeugbuchung" auf "Auftragsmanagement" (Kofferwechsel).
-3. **Deployment-Strategie:** 
-   - Phase 1: Deployment auf **GitPod** (für umfangreiche Tests).
-   - Phase 2: Rollout auf **Kunden-Server** mit dedizierter Datenbank.
-4. **Datenhaltung:** Implementierung einer Archivierungsfunktion für abgeschlossene Aufträge.
+## 🛠 Aktueller Stand (März 2026)
+1. **Backend:** Persistent via **SQLite** (`sqlx`). Simulation komplett entfernt.
+2. **Datenmodell:** Aufträge enthalten Koffer-Daten, Altfahrzeug-Daten, Neufahrzeug-Daten, Teilelisten (mit Produktlinks statt Status) und Bilder.
+3. **Archivierung:** Abgeschlossene Aufträge werden in ein separates Archiv verschoben.
+4. **API:** Nutzt Axum 0.8 mit Multipart-Upload. Absolute URLs (`http://127.0.0.1:3000`) werden im Frontend bevorzugt.
 
-## 🚀 Zukunfts-Features (Roadmap)
-- **KI-Unterstützung:** Integration einer KI, die vergleichbare Altaufträge findet, um Bestelllisten (Teile) bei Dubletten automatisch zu generieren.
+## 🎨 UI/UX Konventionen (WICHTIG)
+- **Name:** Die Software heißt offiziell **"Kofferwechsel-Software"**.
+- **Auftragsverwaltung:** 
+    - Suche dient als Navigation ("Jump-to-Details") via Auftragsnummer (bündig im Layout, mit "Suche:" Label).
+    - Status-Dropdowns sind farblich codiert (Blau, Orange, Lila, Grün, Grau).
+    - Mülleimer-Symbol ermöglicht das unwiderrufliche Löschen von Aufträgen (nach Bestätigung).
+- **Detailansicht (Spezifikation):**
+    - **Kunde & Auftragsnummer** stehen prominent nebeneinander ganz oben.
+    - **Teileliste:** Steht ganz oben. Enthält Felder für Bezeichnung, Artikel-Nr, Händler und Produktlink. Teile können einzeln gelöscht werden (Mülleimer).
+    - **Bilder:** Werden via **Drag & Drop** hochgeladen.
+    - **Umsatzerwartung:** Eigene Karte ganz unten mit großer Anzeige.
+- **Formular "Neuer Auftrag":**
+    - **Validierung:** Button erst aktiv, wenn alle Felder (inkl. Baujahr/KM) ausgefüllt sind.
+    - **Reset:** Alle Felder werden nach erfolgreichem Anlegen automatisch geleert (Controlled Components).
+    - **Labels:** Begriffe "Altes Fahrzeug" und "Neues Fahrzeug" verwenden.
+    - **Zahlenfelder:** Keine Spin-Buttons (Hoch/Runter-Pfeile) sichtbar.
 
-## 📋 Fachlogik & Prozess-Details (Fahrtec Fokus)
-- **System-Check:** Unterscheidung zwischen analogen Schaltersystemen und modernen CAN-Bus-Systemen (entscheidend für Material/Stunden).
-- **Verschleißteil-Standard:** Jedes Projekt umfasst standardmäßig die Prüfung/Erneuerung von:
-    - Schlosstechnik (Heck-, Seiten-, Zusatztüren).
-    - Magnetfeststeller (270 Grad) und Sturmhaken.
-    - V2A Stangenscharniere.
-    - Silikonfugen (außen).
-- **Komponenten-Module:** 
-    - **Klima/Heizung:** Prüfung Leitungen, Kondensator, Standheizung.
-    - **Medizintechnik:** Tragentisch-Überholung, Sauerstoffversorgungs-Prüfung.
-    - **Elektrik:** 230V Wandler, Ladetechnik, Blaulicht/SSA, Unfalldatenspeicher (UDS).
-- **Fahrzeug-Bereitstellung (Neu-Chassis):** Da Spender-Fahrzeuge oft Unfallschäden haben, liegt der Fokus auf der technischen Abnahme des Neufahrzeugs nach dem Umbau:
-    - Umbau/Anpassung Auspuffanlage.
-    - Transfer/Einbau Retarder (falls vorhanden).
-    - Montage Schmutzfänger und Außenbeklebung.
-    - Herstellung der vollen Gebrauchsfertigkeit (Klima, Heizung, Trennwandfenster).
-- **Qualitätssicherung:** Abschlussprüfung nach VDE 0100, Sauerstoff-Druckprobe und Ergänzung der Zulassungsbescheinigung.
+## 🚀 Roadmap
+- **KI-Unterstützung:** Integration einer Logik, die basierend auf Kunden/Koffer vergleichbare Altaufträge findet, um Teilelisten automatisch vorzubereiten.
 
-## 📌 Wichtige Regeln
-- Keine Simulation mehr nutzen.
-- Fokus auf Datenintegrität (Archivierung).
-- Code modular halten für den späteren KI-Anschluss.
-- **Teilebestellungen:** Bestellungen sind **strikt auftragsgebunden**.
-- **Typ-Sicherheit:** Strukturen mit `f64` (Umsatz, Stunden) dürfen NIEMALS `Eq` ableiten (nur `PartialEq`).
-- **UI-Design:** Keine Abkürzungen (z.B. "Kennzeichen" statt "KZ", "Kilometerstand" statt "KM", "Seriennummer" statt "SN").
+## 📌 Technische Regeln
+- **Typ-Sicherheit:** Strukturen mit `f64` dürfen NIEMALS `Eq` ableiten (nur `PartialEq`).
+- **Build-Prozess:** Frontend via `trunk build`, Backend via `cargo run`.
+- **Datenintegrität:** Bei Schema-Änderungen in den Structs muss die `.db` Datei im Backend gelöscht werden, um JSON-Fehler zu vermeiden.
