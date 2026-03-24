@@ -85,6 +85,7 @@ async fn main() {
     let app = Router::new()
         .route("/api/state", get(get_state).post(update_state))
         .route("/api/upload/{nr}", post(upload_image))
+        .route("/api/delete-image/{nr}/{filename}", post(delete_image))
         .nest_service("/api/images", ServeDir::new("data/images"))
         .with_state(pool)
         .layer(cors);
@@ -146,4 +147,32 @@ async fn upload_image(
         return Ok(filename);
     }
     Err("Kein Feld gefunden".to_string())
+}
+
+async fn delete_image(
+    State(pool): State<AppState>,
+    AxumPath((nr, filename)): AxumPath<(String, String)>,
+) -> Result<String, String> {
+    let path = Path::new("data/images").join(&filename);
+    if path.exists() {
+        let _ = fs::remove_file(path);
+    }
+
+    let result: (String,) = sqlx::query_as("SELECT state_json FROM koffer_state WHERE id = 1")
+        .fetch_one(&pool)
+        .await
+        .map_err(|e| e.to_string())?;
+    
+    let mut management: KofferManagement = serde_json::from_str(&result.0).unwrap();
+    if let Some(a) = management.auftraege.iter_mut().find(|a| a.auftrags_nummer == nr) {
+        a.bilder.retain(|b| b != &filename);
+        let state_json = serde_json::to_string(&management).unwrap();
+        sqlx::query("UPDATE koffer_state SET state_json = ? WHERE id = 1")
+            .bind(state_json)
+            .execute(&pool)
+            .await
+            .map_err(|e| e.to_string())?;
+    }
+    
+    Ok("Gelöscht".to_string())
 }
