@@ -1,637 +1,272 @@
+use web_sys::wasm_bindgen::JsCast;
 use yew::prelude::*;
 use gloo_net::http::Request;
 use wasm_bindgen_futures::spawn_local;
-
-use rust_frontend::carsharing::{
-    Car, CarSharing, CarSharingService, CarStatus, Person, PersonStatus,
-};
+use web_sys::{HtmlInputElement, File};
+use std::collections::HashMap;
+use rust_frontend::kofferwechsel::{KofferManagement, KofferwechselAuftrag, AuftragsStatus, Auftraggeber, Koffer, Fahrgestell, Bestellteil, BestellStatus};
 
 #[derive(Clone, PartialEq)]
-enum Tab {
-    FleetOverview,
-    Persons,
-    Cars,
-    Reservations,
-    Rentals,
-    Simulation,
-}
+enum Tab { Dashboard, Cockpit, NeuerAuftrag, Details(String), Archiv }
 
-fn sidebar_button(current: &Tab, tab: Tab, icon: &str, label: &str, on_click: Callback<MouseEvent>) -> Html {
-    let is_active = *current == tab;
-    let style = if is_active {
-        "display:flex; align-items:center; gap:12px; padding:12px 16px; background:#fff; color:#000; border-radius:12px; cursor:pointer; border:none; width:100%; text-align:left; font-weight:600; box-shadow: 0 2px 4px rgba(0,0,0,0.05);"
-    } else {
-        "display:flex; align-items:center; gap:12px; padding:12px 16px; background:transparent; color:#666; border-radius:12px; cursor:pointer; border:none; width:100%; text-align:left; font-weight:500;"
+fn s_badge(s: &AuftragsStatus) -> Html {
+    let (bg, color, label) = match s {
+        AuftragsStatus::Angenommen => ("#e7f5ff", "#228be6", "Angenommen"),
+        AuftragsStatus::InArbeit => ("#fff4e6", "#fd7e14", "In Arbeit"),
+        AuftragsStatus::Bereitstellung => ("#f3f0ff", "#7950f2", "Bereitstellung"),
+        AuftragsStatus::Abgeschlossen => ("#ebfbee", "#40c057", "Abgeschlossen"),
+        _ => ("#f8f9fa", "#868e96", "Status"),
     };
-
-    html! { 
-        <button style={style} onclick={on_click}>
-            <span style="font-size:20px;">{icon}</span>
-            {label}
-        </button> 
-    }
+    html! { <span style={format!("background:{bg}; color:{color}; padding:4px 12px; border-radius:12px; font-size:12px; font-weight:700; text-transform:uppercase;")}>{label}</span> }
 }
 
 #[function_component(App)]
 fn app() -> Html {
-    let tab = use_state(|| Tab::FleetOverview);
-    let cs = use_state(CarSharing::new);
+    let tab = use_state(|| Tab::Dashboard);
+    let management = use_state(KofferManagement::new);
+    let search = use_state(|| String::new());
+    let info = use_state(|| String::new());
 
-    // --- LADE-MECHANISMUS ---
-    {
-        let cs = cs.clone();
-        use_effect(move || {
-            spawn_local(async move {
-                let fetched_cs: CarSharing = Request::get("/api/state")
-                    .send()
-                    .await
-                    .unwrap()
-                    .json()
-                    .await
-                    .unwrap();
-                cs.set(fetched_cs);
-            });
-            || ()
-        });
-    }
+    let f_nr = use_state(|| String::new()); let f_kn = use_state(|| String::new());
+    let f_ks = use_state(|| String::new()); let f_kh = use_state(|| String::new()); let f_kj = use_state(|| 2024u32);
+    let f_sv = use_state(|| String::new()); let f_skz = use_state(|| String::new()); let f_skm = use_state(|| 0u32);
+    let f_ev = use_state(|| String::new()); let f_ekz = use_state(|| String::new()); let f_ekm = use_state(|| 0u32);
+    let f_ums = use_state(|| 0.0f64);
 
-    // --- NEUER SPEICHER-MECHANISMUS ---
-    let save_state = {
-        let info = use_state(|| String::new());
-        Callback::from(move |model: CarSharing| {
-            let info = info.clone();
+    let load = {
+        let m = management.clone();
+        Callback::from(move |_| {
+            let m = m.clone();
             spawn_local(async move {
-                let request = Request::post("/api/state")
-                    .json(&model);
-                
-                match request {
-                    Ok(req) => {
-                        if let Err(_) = req.send().await {
-                            info.set("Fehler: Konnte Zustand nicht ans Backend senden.".to_string());
-                        }
-                    }
-                    Err(_) => {
-                        info.set("Fehler: Interner Fehler beim Erstellen der Anfrage.".to_string());
-                    }
+                if let Ok(resp) = Request::get("http://127.0.0.1:3000/api/state").send().await {
+                    if let Ok(data) = resp.json::<KofferManagement>().await { m.set(data); }
                 }
             });
         })
     };
+    { let l = load.clone(); use_effect_with((), move |_| { l.emit(()); || () }); }
 
-    let info = use_state(|| String::new());
-
-    // ---------- Form States ----------
-    let p_id = use_state(|| "".to_string());
-    let p_days = use_state(|| "".to_string());
-    let c_id = use_state(|| "".to_string());
-    let c_km = use_state(|| "".to_string());
-    let c_age = use_state(|| "".to_string());
-    let r_person = use_state(|| "".to_string());
-    let r_car = use_state(|| "".to_string());
-    let r_prio = use_state(|| "".to_string());
-    let ret_person = use_state(|| "".to_string());
-    let ret_car = use_state(|| "".to_string());
-    let ret_km = use_state(|| "".to_string());
-    let sim_days = use_state(|| "".to_string());
-
-    let on_reset = {
-        let cs = cs.clone();
-        let info = info.clone();
-        let save_state = save_state.clone();
-        Callback::from(move |_: MouseEvent| {
-            let new_model = CarSharing::new();
-            save_state.emit(new_model.clone()); 
-            cs.set(new_model);
-            info.set("State an Backend gesendet und zurückgesetzt.".to_string());
+    let save = {
+        let m = management.clone(); let i = info.clone();
+        Callback::from(move |nm: KofferManagement| {
+            let m = m.clone(); let i = i.clone();
+            spawn_local(async move {
+                let req = Request::post("http://127.0.0.1:3000/api/state").json(&nm);
+                if let Ok(r) = req { if let Ok(_) = r.send().await { m.set(nm); i.set("Gespeichert.".to_string()); } }
+            });
         })
     };
 
-    // ========== Tab Switch Callbacks ==========
-    let set_tab_overview = { let tab = tab.clone(); Callback::from(move |_: MouseEvent| tab.set(Tab::FleetOverview)) };
-    let set_tab_persons = { let tab = tab.clone(); Callback::from(move |_: MouseEvent| tab.set(Tab::Persons)) };
-    let set_tab_cars = { let tab = tab.clone(); Callback::from(move |_: MouseEvent| tab.set(Tab::Cars)) };
-    let set_tab_res = { let tab = tab.clone(); Callback::from(move |_: MouseEvent| tab.set(Tab::Reservations)) };
-    let set_tab_rentals = { let tab = tab.clone(); Callback::from(move |_: MouseEvent| tab.set(Tab::Rentals)) };
-    let set_tab_sim = { let tab = tab.clone(); Callback::from(move |_: MouseEvent| tab.set(Tab::Simulation)) };
-
-    // ========== Simulation Action (Unified) ==========
-    let run_simulation = {
-        let cs = cs.clone();
-        let info = info.clone();
-        let save_state = save_state.clone();
-        Callback::from(move |days: u32| {
-            let mut model = (*cs).clone();
-            model.simulate_n_days(days);
-            save_state.emit(model.clone());
-            cs.set(model);
-            info.set(format!("Simulation durchgeführt: {} Tage.", days));
+    let on_create = {
+        let m = management.clone(); let s = save.clone(); let t = tab.clone();
+        let fnr = f_nr.clone(); let fkn = f_kn.clone(); let fks = f_ks.clone(); let fkh = f_kh.clone(); let fkj = f_kj.clone();
+        let fsv = f_sv.clone(); let fskz = f_skz.clone(); let fskm = f_skm.clone();
+        let fev = f_ev.clone(); let fekz = f_ekz.clone(); let fekm = f_ekm.clone(); let fums = f_ums.clone();
+        Callback::from(move |_| {
+            let mut nm = (*m).clone();
+            let mut cl = HashMap::new();
+            for i in ["Auspuff", "Retarder", "Schmutzfänger", "Beklebung", "VDE 0100", "O2-Probe"] { cl.insert(i.to_string(), false); }
+            nm.auftraege.push(KofferwechselAuftrag {
+                auftrags_nummer: (*fnr).clone(), status: AuftragsStatus::Angenommen, auftraggeber: Auftraggeber { name: (*fkn).clone(), kontakt: "".to_string() },
+                koffer: Koffer { seriennummer: (*fks).clone(), hersteller: (*fkh).clone(), baujahr: *fkj },
+                spender_fahrgestell: Fahrgestell { vin: (*fsv).clone(), kennzeichen: (*fskz).clone(), modell: "RTW".to_string(), kilometerstand: *fskm },
+                empfaenger_fahrgestell: Fahrgestell { vin: (*fev).clone(), kennzeichen: (*fekz).clone(), modell: "RTW".to_string(), kilometerstand: *fekm },
+                start_datum: "2024-03-24".to_string(), geplante_hochzeit: "".to_string(), abschluss_datum: None, umsatz: *fums, arbeitsstunden: 0.0, bilder: vec![], teileliste: vec![], checkliste: cl,
+            });
+            s.emit(nm); t.set(Tab::Cockpit);
         })
     };
 
-    let on_simulate_custom = {
-        let run_sim = run_simulation.clone();
-        let sim_days = sim_days.clone();
-        let info = info.clone();
-        Callback::from(move |_: MouseEvent| {
-            if let Ok(n) = (*sim_days).trim().parse::<u32>() {
-                run_sim.emit(n);
-            } else {
-                info.set("Bitte gültige Anzahl an Tagen eingeben.".to_string());
-            }
-        })
-    };
+    let card = "background:#fff; border-radius:16px; padding:24px; box-shadow:0 4px 20px rgba(0,0,0,0.05); margin-bottom:24px; box-sizing:border-box;";
+    let inp = "padding:10px; border:1px solid #dee2e6; border-radius:10px; width:100%; margin-bottom:10px; font-size:14px; box-sizing:border-box;";
 
-    // ========== Persons Actions ==========
-    let on_add_person = {
-        let cs = cs.clone();
-        let info = info.clone();
-        let p_id = p_id.clone();
-        let p_days = p_days.clone();
-        let save_state = save_state.clone();
-        Callback::from(move |_: MouseEvent| {
-            let mut model = (*cs).clone();
-            let id = (*p_id).trim().to_string();
-            if id.is_empty() { info.set("Person-ID darf nicht leer sein.".to_string()); return; }
-            let days = match (*p_days).trim().parse::<u32>() {
-                Ok(v) => v,
-                Err(_) => { info.set("license_valid_days muss eine Zahl sein.".to_string()); return; }
-            };
-            let ok = model.register_person(Person { identifier: id.clone(), license_valid_days: days, status: PersonStatus::Active });
-            if ok {
-                save_state.emit(model.clone());
-                cs.set(model);
-                info.set(format!("Person '{}' angelegt.", id));
-            } else {
-                info.set("Person existiert schon oder konnte nicht angelegt werden.".to_string());
-            }
-        })
-    };
-
-    let on_remove_person = {
-        let cs = cs.clone();
-        let info = info.clone();
-        let p_id = p_id.clone();
-        let save_state = save_state.clone();
-        Callback::from(move |_: MouseEvent| {
-            let mut model = (*cs).clone();
-            let id = (*p_id).trim().to_string();
-            if id.is_empty() { info.set("Zum Entfernen bitte Person-ID eingeben.".to_string()); return; }
-            let ok = model.unregister_person(&id);
-            if ok {
-                save_state.emit(model.clone());
-                cs.set(model);
-                info.set(format!("Person '{}' entfernt.", id));
-            } else {
-                info.set("Person konnte nicht entfernt werden.".to_string());
-            }
-        })
-    };
-
-    let on_renew_license = {
-        let cs = cs.clone();
-        let info = info.clone();
-        let p_id = p_id.clone();
-        let p_days = p_days.clone();
-        let save_state = save_state.clone();
-        Callback::from(move |_: MouseEvent| {
-            let mut model = (*cs).clone();
-            let id = (*p_id).trim().to_string();
-            if id.is_empty() { info.set("Bitte Person-ID eingeben.".to_string()); return; }
-            let days = match (*p_days).trim().parse::<u32>() {
-                Ok(v) => v,
-                Err(_) => { info.set("new_valid_days muss eine Zahl sein.".to_string()); return; }
-            };
-            let ok = model.renew_license(&id, days);
-            if ok {
-                save_state.emit(model.clone());
-                cs.set(model);
-                info.set(format!("Führerschein für '{}' erneuert.", id));
-            } else {
-                info.set("Person nicht gefunden.".to_string());
-            }
-        })
-    };
-
-    // ========== Cars Actions ==========
-    let on_add_car = {
-        let cs = cs.clone();
-        let info = info.clone();
-        let c_id = c_id.clone();
-        let c_km = c_km.clone();
-        let c_age = c_age.clone();
-        let save_state = save_state.clone();
-        Callback::from(move |_: MouseEvent| {
-            let mut model = (*cs).clone();
-            let id = (*c_id).trim().to_string();
-            if id.is_empty() { info.set("Car-ID darf nicht leer sein.".to_string()); return; }
-            let mileage = match (*c_km).trim().parse::<u32>() {
-                Ok(v) => v,
-                Err(_) => { info.set("mileage muss eine Zahl sein.".to_string()); return; }
-            };
-            let age_days = match (*c_age).trim().parse::<u32>() {
-                Ok(v) => v,
-                Err(_) => { info.set("age_days muss eine Zahl sein.".to_string()); return; }
-            };
-            let ok = model.register_car(Car { identifier: id.clone(), mileage, status: CarStatus::Available, age_days, rental_count: 0 });
-            if ok {
-                save_state.emit(model.clone());
-                cs.set(model);
-                info.set(format!("Auto '{}' angelegt.", id));
-            } else {
-                info.set("Auto konnte nicht angelegt werden.".to_string());
-            }
-        })
-    };
-
-    let on_remove_car = {
-        let cs = cs.clone();
-        let info = info.clone();
-        let c_id = c_id.clone();
-        let save_state = save_state.clone();
-        Callback::from(move |_: MouseEvent| {
-            let mut model = (*cs).clone();
-            let id = (*c_id).trim().to_string();
-            if id.is_empty() { info.set("Zum Entfernen bitte Car-ID eingeben.".to_string()); return; }
-            let ok = model.unregister_car(&id);
-            if ok {
-                save_state.emit(model.clone());
-                cs.set(model);
-                info.set(format!("Auto '{}' entfernt.", id));
-            } else {
-                info.set("Auto konnte nicht entfernt werden.".to_string());
-            }
-        })
-    };
-
-    // ========== Reservation Actions ==========
-    let on_reserve = {
-        let cs = cs.clone();
-        let info = info.clone();
-        let r_person = r_person.clone();
-        let r_car = r_car.clone();
-        let r_prio = r_prio.clone();
-        let save_state = save_state.clone();
-        Callback::from(move |_: MouseEvent| {
-            let mut model = (*cs).clone();
-            let person_id = (*r_person).trim().to_string();
-            let car_id = (*r_car).trim().to_string();
-            if person_id.is_empty() || car_id.is_empty() { info.set("Bitte Person-ID und Car-ID eingeben.".to_string()); return; }
-            let prio = match (*r_prio).trim().parse::<u32>() {
-                Ok(v) => v,
-                Err(_) => { info.set("priority muss eine Zahl sein.".to_string()); return; }
-            };
-            let ok = model.reserve_car(&person_id, &car_id, prio);
-            if ok {
-                save_state.emit(model.clone());
-                cs.set(model);
-                info.set(format!("Reservierung gesetzt: {} -> {}.", person_id, car_id));
-            } else {
-                info.set("Reservierung nicht möglich.".to_string());
-            }
-        })
-    };
-
-    let on_cancel_reservation = {
-        let cs = cs.clone();
-        let info = info.clone();
-        let r_person = r_person.clone();
-        let r_car = r_car.clone();
-        let save_state = save_state.clone();
-        Callback::from(move |_: MouseEvent| {
-            let mut model = (*cs).clone();
-            let person_id = (*r_person).trim().to_string();
-            let car_id = (*r_car).trim().to_string();
-            if person_id.is_empty() || car_id.is_empty() { info.set("Bitte Person-ID und Car-ID eingeben.".to_string()); return; }
-            let ok = model.cancel_reservation(&person_id, &car_id);
-            if ok {
-                save_state.emit(model.clone());
-                cs.set(model);
-                info.set(format!("Reservierung storniert: {} -> {}.", person_id, car_id));
-            } else {
-                info.set("Reservierung nicht gefunden.".to_string());
-            }
-        })
-    };
-
-
-    // ========== Return Action ==========
-    let on_return = {
-        let cs = cs.clone();
-        let info = info.clone();
-        let ret_person = ret_person.clone();
-        let ret_car = ret_car.clone();
-        let ret_km = ret_km.clone();
-        let save_state = save_state.clone();
-        Callback::from(move |_: MouseEvent| {
-            let mut model = (*cs).clone();
-            let person_id = (*ret_person).trim().to_string();
-            let car_id = (*ret_car).trim().to_string();
-            if person_id.is_empty() || car_id.is_empty() { info.set("Bitte Person-ID und Car-ID eingeben.".to_string()); return; }
-            let driven_km = match (*ret_km).trim().parse::<u32>() {
-                Ok(v) => v,
-                Err(_) => { info.set("driven_km muss eine Zahl sein.".to_string()); return; }
-            };
-            let ok = model.return_car(&person_id, &car_id, driven_km);
-            if ok {
-                save_state.emit(model.clone());
-                cs.set(model);
-                info.set(format!("Auto zurückgegeben: {} -> {}.", person_id, car_id));
-            } else {
-                info.set("Return fehlgeschlagen.".to_string());
-            }
-        })
-    };
-
-    // ========== Inputs: oninput callbacks ==========
-    let on_p_id = { let p_id = p_id.clone(); Callback::from(move |e: InputEvent| { p_id.set(e.target_unchecked_into::<web_sys::HtmlInputElement>().value()); }) };
-    let on_p_days = { let p_days = p_days.clone(); Callback::from(move |e: InputEvent| { p_days.set(e.target_unchecked_into::<web_sys::HtmlInputElement>().value()); }) };
-    let on_c_id = { let c_id = c_id.clone(); Callback::from(move |e: InputEvent| { c_id.set(e.target_unchecked_into::<web_sys::HtmlInputElement>().value()); }) };
-    let on_c_km = { let c_km = c_km.clone(); Callback::from(move |e: InputEvent| { c_km.set(e.target_unchecked_into::<web_sys::HtmlInputElement>().value()); }) };
-    let on_c_age = { let c_age = c_age.clone(); Callback::from(move |e: InputEvent| { c_age.set(e.target_unchecked_into::<web_sys::HtmlInputElement>().value()); }) };
-    let on_r_person = { let r_person = r_person.clone(); Callback::from(move |e: InputEvent| { r_person.set(e.target_unchecked_into::<web_sys::HtmlInputElement>().value()); }) };
-    let on_r_car = { let r_car = r_car.clone(); Callback::from(move |e: InputEvent| { r_car.set(e.target_unchecked_into::<web_sys::HtmlInputElement>().value()); }) };
-    let on_r_prio = { let r_prio = r_prio.clone(); Callback::from(move |e: InputEvent| { r_prio.set(e.target_unchecked_into::<web_sys::HtmlInputElement>().value()); }) };
-    let on_ret_person = { let ret_person = ret_person.clone(); Callback::from(move |e: InputEvent| { ret_person.set(e.target_unchecked_into::<web_sys::HtmlInputElement>().value()); }) };
-    let on_ret_car = { let ret_car = ret_car.clone(); Callback::from(move |e: InputEvent| { ret_car.set(e.target_unchecked_into::<web_sys::HtmlInputElement>().value()); }) };
-    let on_ret_km = { let ret_km = ret_km.clone(); Callback::from(move |e: InputEvent| { ret_km.set(e.target_unchecked_into::<web_sys::HtmlInputElement>().value()); }) };
-    let on_sim_days = { let sim_days = sim_days.clone(); Callback::from(move |e: InputEvent| { sim_days.set(e.target_unchecked_into::<web_sys::HtmlInputElement>().value()); }) };
-
-    // ========== Render current tab ==========
-    let current_tab = (*tab).clone();
-    let model = (*cs).clone();
-    
-    // CSS Constants for the new Look
-    let main_bg = "background-color: #f8f9fa; min-height: 100vh; display: flex; font-family: 'Inter', system-ui, sans-serif; color: #1a1a1a;";
-    let sidebar_style = "width: 260px; background-color: #f1f3f5; padding: 24px 16px; display: flex; flex-direction: column; gap: 8px; border-right: 1px solid #e9ecef;";
-    let content_area = "flex: 1; padding: 40px; overflow-y: auto;";
-    
-    let card_style = "background: #fff; border-radius: 20px; padding: 24px; box-shadow: 0 4px 6px rgba(0,0,0,0.02); border: 1px solid #f1f3f5;";
-    let stats_grid = "display: grid; grid-template-columns: repeat(4, 1fr); gap: 24px; margin-bottom: 40px;";
-    
-    let btn_primary = "padding: 12px 20px; background: #006666; color: #fff; border: none; border-radius: 12px; font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: space-between; width: 100%; transition: opacity 0.2s;";
-    let btn_secondary = "padding: 12px 20px; background: #d0d7ff; color: #5c7cfa; border: none; border-radius: 12px; font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: space-between; width: 100%; transition: opacity 0.2s;";
-    let btn_outline = "padding: 12px 20px; background: #e9ecef; color: #495057; border: none; border-radius: 12px; font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: space-between; width: 100%; transition: opacity 0.2s;";
-
-    let content = match current_tab {
-        Tab::FleetOverview => {
-            let available = model.cars.iter().filter(|c| c.status == CarStatus::Available).count();
-            let rented = model.rentals.len();
-            let maintenance = model.cars.iter().filter(|c| matches!(c.status, CarStatus::Maintenance(_))).count();
-            let tuv = model.cars.iter().filter(|c| matches!(c.status, CarStatus::Tuv(_))).count();
-
+    let content = match &*tab {
+        Tab::Dashboard => {
+            let ab = management.auftraege.iter().filter(|a| a.status == AuftragsStatus::Abgeschlossen).collect::<Vec<_>>();
+            let ak = management.auftraege.iter().filter(|a| a.status != AuftragsStatus::Abgeschlossen && a.status != AuftragsStatus::Archiviert).collect::<Vec<_>>();
+            let gu: f64 = ab.iter().map(|a| a.umsatz).sum();
+            let pu: f64 = ak.iter().map(|a| a.umsatz).sum();
             html! {
                 <div>
-                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 8px;">
-                        <h1 style="font-size: 32px; font-weight: 800; margin: 0;">{"Fleet Overview"}</h1>
-                        <div style="background:#e6fcf5; color:#0ca678; padding:6px 12px; border-radius:20px; font-size:14px; font-weight:600; display:flex; align-items:center; gap:6px;">
-                            <span style="width:8px; height:8px; background:#0ca678; border-radius:50%;"></span>
-                            {"System Live"}
-                        </div>
-                    </div>
-                    <p style="color: #666; margin-bottom: 32px;">{"Real-time monitoring and logistics simulation engine."}</p>
-
-                    <div style={stats_grid}>
-                        <div style={card_style}>
-                            <div style="display:flex; justify-content:space-between; align-items:start; margin-bottom:20px;">
-                                <div style="background:#e6fcf5; color:#0ca678; padding:4px 8px; border-radius:6px; font-size:12px; font-weight:700;">{"AVAILABLE"}</div>
-                                <span style="color:#0ca678; font-size:24px;">{"✓"}</span>
-                            </div>
-                            <div style="font-size:48px; font-weight:800;">{available}</div>
-                            <div style="color:#666; font-size:12px; font-weight:600; text-transform:uppercase; letter-spacing:0.5px;">{"Ready for service"}</div>
-                        </div>
-                        <div style={card_style}>
-                            <div style="display:flex; justify-content:space-between; align-items:start; margin-bottom:20px;">
-                                <div style="background:#edf2ff; color:#4c6ef5; padding:4px 8px; border-radius:6px; font-size:12px; font-weight:700;">{"RENTED"}</div>
-                                <span style="color:#4c6ef5; font-size:24px;">{"⟳"}</span>
-                            </div>
-                            <div style="font-size:48px; font-weight:800;">{rented}</div>
-                            <div style="color:#666; font-size:12px; font-weight:600; text-transform:uppercase; letter-spacing:0.5px;">{"Active rentals"}</div>
-                        </div>
-                        <div style={card_style}>
-                            <div style="display:flex; justify-content:space-between; align-items:start; margin-bottom:20px;">
-                                <div style="background:#fff5f5; color:#fa5252; padding:4px 8px; border-radius:6px; font-size:12px; font-weight:700;">{"MAINTENANCE"}</div>
-                                <span style="color:#fa5252; font-size:24px;">{"🔧"}</span>
-                            </div>
-                            <div style="font-size:48px; font-weight:800;">{maintenance}</div>
-                            <div style="color:#666; font-size:12px; font-weight:600; text-transform:uppercase; letter-spacing:0.5px;">{"In workshop"}</div>
-                        </div>
-                        <div style={card_style}>
-                            <div style="display:flex; justify-content:space-between; align-items:start; margin-bottom:20px;">
-                                <div style="background:#fff9db; color:#f08c00; padding:4px 8px; border-radius:6px; font-size:12px; font-weight:700;">{"URGENT"}</div>
-                                <span style="color:#f08c00; font-size:24px;">{"!"}</span>
-                            </div>
-                            <div style="font-size:48px; font-weight:800;">{tuv}</div>
-                            <div style="color:#666; font-size:12px; font-weight:600; text-transform:uppercase; letter-spacing:0.5px;">{"TUV expiring soon"}</div>
-                        </div>
-                    </div>
-
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px;">
-                        <div style={format!("{}; min-height:400px; display:flex; flex-direction:column;", card_style)}>
-                            <h3 style="margin:0 0 8px 0;">{"Active Rentals"}</h3>
-                            <p style="color:#666; font-size:14px; margin-bottom:24px;">{"Currently active vehicle deployments."}</p>
-                            
-                            <div style="flex:1; overflow-y:auto; padding-right:8px;">
-                                { if model.rentals.is_empty() {
-                                    html! { <div style="color:#adb5bd; font-size:14px; text-align:center; margin-top:40px;">{"No active rentals at the moment."}</div> }
-                                } else {
-                                    html! {
-                                        <ul style="list-style:none; padding:0; margin:0; display:flex; flex-direction:column; gap:12px;">
-                                            { for model.rentals.iter().map(|(p, c)| html! {
-                                                <li style="display:flex; align-items:center; gap:12px; padding:12px; background:#f8f9fa; border-radius:12px; border:1px solid #f1f3f5;">
-                                                    <div style="width:32px; height:32px; background:#e9ecef; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:14px;">{"🚗"}</div>
-                                                    <div style="flex:1;">
-                                                        <div style="font-weight:700; font-size:14px;">{c.to_string()}</div>
-                                                        <div style="font-size:12px; color:#666;">{format!("Driver: {}", p)}</div>
-                                                    </div>
-                                                    <div style="background:#e7f5ff; color:#228be6; font-size:10px; font-weight:800; padding:4px 8px; border-radius:6px; text-transform:uppercase;">{"On Track"}</div>
-                                                </li>
-                                            })}
-                                        </ul>
-                                    }
-                                }}
-                            </div>
-                        </div>
-
-                        <div style={card_style}>
-                            <h3 style="margin:0 0 8px 0;">{"Simulate Operations"}</h3>
-                            <p style="color:#666; font-size:14px; margin-bottom:24px;">{"Fast-forward fleet lifecycle to test maintenance thresholds."}</p>
-                            
-                            <div style="display:flex; flex-direction:column; gap:12px;">
-                                <button style={btn_primary} onclick={let r=run_simulation.clone(); move |_| r.emit(1)}>
-                                    {"Simulate 1 Day"} <span style="font-size:18px;">{"▶▶"}</span>
-                                </button>
-                                <button style={btn_secondary} onclick={let r=run_simulation.clone(); move |_| r.emit(7)}>
-                                    {"Simulate 7 Days"} <span style="font-size:18px;">{"≫"}</span>
-                                </button>
-                                <button style={btn_outline} onclick={let r=run_simulation.clone(); move |_| r.emit(30)}>
-                                    {"Simulate 30 Days"} <span style="font-size:18px;">{"⟳"}</span>
-                                </button>
-                            </div>
-
-                            <div style="margin-top:32px;">
-                                <label style="display:block; font-size:11px; font-weight:800; color:#495057; text-transform:uppercase; margin-bottom:8px;">{"Custom Interval"}</label>
-                                <div style="display:flex; gap:8px;">
-                                    <input 
-                                        style="flex:1; padding:12px; border:1px solid #dee2e6; border-radius:12px; font-size:14px;" 
-                                        placeholder="Days" 
-                                        value={(*sim_days).clone()} 
-                                        oninput={on_sim_days}
-                                    />
-                                    <button 
-                                        style="padding:0 16px; background:#006666; color:#fff; border:none; border-radius:12px; cursor:pointer;"
-                                        onclick={on_simulate_custom}
-                                    >{"▶"}</button>
-                                </div>
-                            </div>
-                        </div>
+                    <h1>{"Dashboard"}</h1>
+                    <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:24px;">
+                        <div style={card}><div style="font-size:12px; color:#adb5bd;">{"UMSATZ (FERTIG)"}</div><div style="font-size:42px; font-weight:800; color:#006666;">{format!("{:.0} €", gu.abs())}</div></div>
+                        <div style={card}><div style="font-size:12px; color:#adb5bd;">{"PIPELINE (AKTIV)"}</div><div style="font-size:42px; font-weight:800; color:#fd7e14;">{format!("{:.0} €", pu.abs())}</div></div>
+                        <div style={card}><div style="font-size:12px; color:#adb5bd;">{"Ø PRO AUFTRAG"}</div><div style="font-size:42px; font-weight:800; color:#228be6;">{format!("{:.0} €", (if ab.is_empty() {0.0} else {gu/ab.len() as f64}).abs())}</div></div>
                     </div>
                 </div>
             }
         },
-        Tab::Persons => html! {
-            <div>
-                <h1 style="margin-bottom:32px;">{"Persons Management"}</h1>
-                <div style={format!("{}; margin-bottom:24px;", card_style)}>
-                    <div style="display:flex; gap:16px; margin-bottom:16px;">
-                        <input style="flex:1; padding:12px; border:1px solid #dee2e6; border-radius:12px;" placeholder="Person-ID" value={(*p_id).clone()} oninput={on_p_id}/>
-                        <input style="flex:1; padding:12px; border:1px solid #dee2e6; border-radius:12px;" placeholder="License Valid Days" value={(*p_days).clone()} oninput={on_p_days}/>
-                    </div>
-                    <div style="display:flex; gap:12px;">
-                        <button style="flex:1; padding:12px; background:#006666; color:#fff; border:none; border-radius:12px; font-weight:600; cursor:pointer;" onclick={on_add_person}>{"Add Person"}</button>
-                        <button style="flex:1; padding:12px; background:#fff; border:1px solid #dee2e6; border-radius:12px; font-weight:600; cursor:pointer;" onclick={on_remove_person}>{"Remove Person"}</button>
-                        <button style="flex:1; padding:12px; background:#fff; border:1px solid #dee2e6; border-radius:12px; font-weight:600; cursor:pointer;" onclick={on_renew_license}>{"Renew License"}</button>
-                    </div>
-                </div>
-                <div style={card_style}>
-                    <h3 style="margin-bottom:16px;">{format!("Registered Persons ({})", model.persons.len())}</h3>
-                    <ul style="list-style:none; padding:0;">
-                        { for model.persons.iter().map(|p| html!{ 
-                            <li style="padding:12px; border-bottom:1px solid #f1f3f5; display:flex; justify-content:space-between;">
-                                <span style="font-weight:600;">{p.identifier.clone()}</span>
-                                <span style="color:#666;">{format!("Valid: {} days | Status: {:?}", p.license_valid_days, p.status)}</span>
-                            </li> 
-                        }) }
-                    </ul>
-                </div>
-            </div>
-        },
-        Tab::Cars => html! {
-            <div>
-                <h1 style="margin-bottom:32px;">{"Fleet Management"}</h1>
-                <div style={format!("{}; margin-bottom:24px;", card_style)}>
-                    <div style="display:flex; gap:16px; margin-bottom:16px;">
-                        <input style="flex:1; padding:12px; border:1px solid #dee2e6; border-radius:12px;" placeholder="Car-ID" value={(*c_id).clone()} oninput={on_c_id}/>
-                        <input style="flex:1; padding:12px; border:1px solid #dee2e6; border-radius:12px;" placeholder="Mileage (km)" value={(*c_km).clone()} oninput={on_c_km}/>
-                        <input style="flex:1; padding:12px; border:1px solid #dee2e6; border-radius:12px;" placeholder="Age (days)" value={(*c_age).clone()} oninput={on_c_age}/>
-                    </div>
-                    <div style="display:flex; gap:12px;">
-                        <button style="flex:1; padding:12px; background:#006666; color:#fff; border:none; border-radius:12px; font-weight:600; cursor:pointer;" onclick={on_add_car}>{"Add Vehicle"}</button>
-                        <button style="flex:1; padding:12px; background:#fff; border:1px solid #dee2e6; border-radius:12px; font-weight:600; cursor:pointer;" onclick={on_remove_car}>{"Remove Vehicle"}</button>
-                    </div>
-                </div>
-                <div style={card_style}>
-                    <h3 style="margin-bottom:16px;">{format!("Total Assets ({})", model.cars.len())}</h3>
-                    <ul style="list-style:none; padding:0;">
-                        { for model.cars.iter().map(|c| html!{ 
-                            <li style="padding:12px; border-bottom:1px solid #f1f3f5; display:flex; justify-content:space-between;">
-                                <div>
-                                    <span style="font-weight:600; margin-right:12px;">{c.identifier.clone()}</span>
-                                    <span style="font-size:12px; background:#f1f3f5; padding:2px 8px; border-radius:4px;">{format!("{:?}", c.status)}</span>
+        Tab::Cockpit => {
+            let q = (*search).to_lowercase();
+            let gef = management.auftraege.iter().filter(|a| a.status != AuftragsStatus::Archiviert).filter(|a| a.auftrags_nummer.to_lowercase().contains(&q) || a.auftraggeber.name.to_lowercase().contains(&q)).collect::<Vec<_>>();
+            html! {
+                <div>
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:32px;"><h1>{"🚗 Auftragsverwaltung"}</h1><input style="flex:1; max-width:400px; padding:12px 20px; border-radius:14px; border:1px solid #e9ecef;" placeholder="Suche..." oninput={let s=search.clone(); move |e: InputEvent| s.set(e.target_unchecked_into::<HtmlInputElement>().value())}/></div>
+                    { for gef.iter().map(|a| {
+                        let nr = a.auftrags_nummer.clone(); let t = tab.clone(); let ms = management.clone(); let ss = save.clone();
+                        html! {
+                            <div style={card}>
+                                <div style="display:flex; justify-content:space-between;">
+                                    <div><div style="font-size:12px; color:#666;">{&a.auftrags_nummer}</div><h2>{&a.auftraggeber.name}</h2></div>
+                                    <div style="text-align:right;">
+                                        <div style="font-size:20px; font-weight:800; color:#006666; margin-bottom:8px;">{format!("{:.0} €", a.umsatz)}</div>
+                                        <select 
+                                            style="padding:6px 12px; border-radius:12px; border:1px solid #dee2e6; font-size:12px; font-weight:700; text-transform:uppercase; cursor:pointer; background:#f8f9fa;"
+                                            onchange={
+                                                let nr = a.auftrags_nummer.clone(); let m = management.clone(); let s = save.clone();
+                                                move |e: Event| {
+                                                    let val = e.target_unchecked_into::<web_sys::HtmlSelectElement>().value();
+                                                    let status = match val.as_str() {
+                                                        "Angenommen" => AuftragsStatus::Angenommen,
+                                                        "InArbeit" => AuftragsStatus::InArbeit,
+                                                        "Bereitstellung" => AuftragsStatus::Bereitstellung,
+                                                        "Abgeschlossen" => AuftragsStatus::Abgeschlossen,
+                                                        _ => AuftragsStatus::Angenommen,
+                                                    };
+                                                    let mut nm = (*m).clone();
+                                                    if let Some(x) = nm.auftraege.iter_mut().find(|x| x.auftrags_nummer == nr) {
+                                                        x.status = status;
+                                                        s.emit(nm);
+                                                    }
+                                                }
+                                            }
+                                        >
+                                            <option value="Angenommen" selected={a.status == AuftragsStatus::Angenommen}>{"Angenommen"}</option>
+                                            <option value="InArbeit" selected={a.status == AuftragsStatus::InArbeit}>{"In Arbeit"}</option>
+                                            <option value="Bereitstellung" selected={a.status == AuftragsStatus::Bereitstellung}>{"Bereitstellung"}</option>
+                                            <option value="Abgeschlossen" selected={a.status == AuftragsStatus::Abgeschlossen}>{"Abgeschlossen"}</option>
+                                        </select>
+                                    </div>
                                 </div>
-                                <span style="color:#666;">{format!("{} km | {} days old", c.mileage, c.age_days)}</span>
-                            </li> 
-                        }) }
-                    </ul>
+                                <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:20px; font-size:14px; border-top:1px solid #f1f3f5; margin-top:16px; padding-top:16px;">
+                                    <div><div style="font-size:11px; color:#adb5bd;">{"KOFFER-AUFBAU"}</div><div>{format!("{} (Seriennummer: {})", a.koffer.hersteller, a.koffer.seriennummer)}</div></div>
+                                    <div><div style="font-size:11px; color:#adb5bd;">{"SPENDER-FAHRZEUG"}</div><div>{format!("{} ({} Kilometerstand)", a.spender_fahrgestell.kennzeichen, a.spender_fahrgestell.kilometerstand)}</div></div>
+                                    <div><div style="font-size:11px; color:#adb5bd;">{"NEU-FAHRZEUG"}</div><div>{format!("{} ({} Kilometerstand)", a.empfaenger_fahrgestell.kennzeichen, a.empfaenger_fahrgestell.kilometerstand)}</div></div>
+                                </div>
+                                <div style="margin-top:20px; display:flex; gap:8px;">
+                                    <button style="padding:8px 16px; background:#006666; color:#fff; border:none; border-radius:8px; cursor:pointer;" onclick={let t=t.clone(); let n=nr.clone(); move |_| t.set(Tab::Details(n.clone()))}>{"Spezifizieren"}</button>
+                                </div>
+                            </div>
+                        }
+                    })}
+                </div>
+            }
+        },
+        Tab::Details(nr) => {
+            let a = management.auftraege.iter().find(|a| &a.auftrags_nummer == nr);
+            match a {
+                Some(a) => html! {
+                    <div>
+                        <button style="color:#006666; font-weight:700; cursor:pointer; background:none; border:none; margin-bottom:20px;" onclick={let t=tab.clone(); move |_| t.set(Tab::Cockpit)}>{"← Zurück"}</button>
+                        <div style="display:grid; grid-template-columns: 2fr 1fr; gap:32px;">
+                            <div>
+                                <div style={card}>
+                                    <h3>{"📸 Bilder"}</h3>
+                                    <div 
+                                        style="border: 2px dashed #dee2e6; border-radius: 12px; padding: 40px; text-align: center; color: #adb5bd; margin-bottom: 24px; cursor: pointer;"
+                                        ondragover={Callback::from(|e: DragEvent| e.prevent_default())}
+                                        ondrop={
+                                            let nr = a.auftrags_nummer.clone(); let l = load.clone();
+                                            Callback::from(move |e: DragEvent| {
+                                                e.prevent_default();
+                                                if let Some(data) = e.data_transfer() {
+                                                    if let Some(files) = data.files() {
+                                                        for i in 0..files.length() {
+                                                            if let Some(file) = files.get(i) {
+                                                                let nr = nr.clone(); let l = l.clone();
+                                                                spawn_local(async move {
+                                                                    let form = web_sys::FormData::new().unwrap();
+                                                                    let _ = form.append_with_blob("file", &file);
+                                                                    let req = Request::post(&format!("http://127.0.0.1:3000/api/upload/{}", nr)).body(form);
+                                                                    if let Ok(r) = req { let _ = r.send().await; l.emit(()); }
+                                                                });
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            })
+                                        }
+                                    >
+                                        {"Bilder hierher ziehen zum Hochladen"}
+                                    </div>
+                                    <div style="display:grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap:15px;">
+                                        { for a.bilder.iter().map(|f| html! { <img src={format!("http://127.0.0.1:3000/api/images/{f}")} style="width:100%; border-radius:12px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);" /> }) }
+                                    </div>
+                                </div>
+                            </div>
+                            <div style={card}><label style="font-size:11px; font-weight:800; color:#adb5bd;">{"UMSATZ (€)"}</label><input style={inp} type="number" value={a.umsatz.to_string()} oninput={let nr=a.auftrags_nummer.clone(); let m=management.clone(); let s=save.clone(); move |e: InputEvent| { let mut mm=(*m).clone(); if let Some(x)=mm.auftraege.iter_mut().find(|x| x.auftrags_nummer==nr) { x.umsatz=e.target_unchecked_into::<HtmlInputElement>().value().parse().unwrap_or(0.0); s.emit(mm); }}} /></div>
+                        </div>
+                        <div style={card}>
+                            <h3>{"🛠 Teileliste"}</h3>
+                            <table style="width:100%; border-collapse:collapse; margin-bottom:20px;">
+                                <thead><tr style="text-align:left; border-bottom:2px solid #f1f3f5;"><th style="padding:10px;">{"Teil"}</th><th style="padding:10px;">{"Art.-Nr."}</th><th style="padding:10px;">{"Händler"}</th><th style="padding:10px;">{"Status"}</th></tr></thead>
+                                <tbody>
+                                    { for a.teileliste.iter().map(|t| html! {
+                                        <tr style="border-bottom:1px solid #f1f3f5;"><td style="padding:10px;">{&t.name}</td><td style="padding:10px;">{&t.artikel_nummer}</td><td style="padding:10px;">{&t.haendler}</td><td style="padding:10px;">{format!("{:?}", t.status)}</td></tr>
+                                    })}
+                                </tbody>
+                            </table>
+                            <div style="display:grid; grid-template-columns: 2fr 1fr 1fr auto; gap:10px; background:#f8f9fa; padding:15px; border-radius:12px;">
+                                <input id="new-part-name" style={inp} placeholder="Neues Teil..."/>
+                                <input id="new-part-art" style={inp} placeholder="Art-Nr..."/>
+                                <input id="new-part-hnd" style={inp} placeholder="Händler..."/>
+                                <button style="padding:10px 20px; background:#006666; color:#fff; border:none; border-radius:10px; cursor:pointer;" onclick={
+                                    let nr=a.auftrags_nummer.clone(); let m=management.clone(); let s=save.clone();
+                                    move |_| {
+                                        let name = web_sys::window().unwrap().document().unwrap().get_element_by_id("new-part-name").unwrap().unchecked_into::<HtmlInputElement>().value();
+                                        let art = web_sys::window().unwrap().document().unwrap().get_element_by_id("new-part-art").unwrap().unchecked_into::<HtmlInputElement>().value();
+                                        let hnd = web_sys::window().unwrap().document().unwrap().get_element_by_id("new-part-hnd").unwrap().unchecked_into::<HtmlInputElement>().value();
+                                        if !name.is_empty() {
+                                            let mut mm=(*m).clone();
+                                            if let Some(x)=mm.auftraege.iter_mut().find(|x| x.auftrags_nummer==nr) {
+                                                x.teileliste.push(Bestellteil { name, artikel_nummer: art, haendler: hnd, status: BestellStatus::Offen });
+                                                s.emit(mm);
+                                            }
+                                        }
+                                    }
+                                }>{"Hinzufügen"}</button>
+                            </div>
+                        </div>
+                    </div>
+                },
+                None => html! { "Nicht gefunden" }
+            }
+        },
+        Tab::NeuerAuftrag => html! {
+            <div style="width:100%;">
+                <h1>{"Neuer Kofferwechsel-Auftrag"}</h1>
+                <div style={card}>
+                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;"><input style={inp} placeholder="Auftrags-Nummer" oninput={let s=f_nr.clone(); move |e: InputEvent| s.set(e.target_unchecked_into::<HtmlInputElement>().value())}/><input style={inp} placeholder="Kunde" oninput={let s=f_kn.clone(); move |e: InputEvent| s.set(e.target_unchecked_into::<HtmlInputElement>().value())}/></div>
+                    <h3 style="margin-top:24px;">{"Koffer-Details"}</h3>
+
+                    <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; margin-top:10px;"><input style={inp} placeholder="Seriennummer Koffer" oninput={let s=f_ks.clone(); move |e: InputEvent| s.set(e.target_unchecked_into::<HtmlInputElement>().value())}/><input style={inp} placeholder="Hersteller" oninput={let s=f_kh.clone(); move |e: InputEvent| s.set(e.target_unchecked_into::<HtmlInputElement>().value())}/><input style={inp} type="number" placeholder="Baujahr" oninput={let s=f_kj.clone(); move |e: InputEvent| s.set(e.target_unchecked_into::<HtmlInputElement>().value().parse().unwrap_or(2024))}/></div>
+                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:20px; margin-top:10px;">
+                        <div><div style="font-size:11px; font-weight:800; color:#fa5252;">{"SPENDER-FAHRZEUG (ALT)"}</div><input style={inp} placeholder="VIN" oninput={let s=f_sv.clone(); move |e: InputEvent| s.set(e.target_unchecked_into::<HtmlInputElement>().value())}/><input style={inp} placeholder="Kennzeichen" oninput={let s=f_skz.clone(); move |e: InputEvent| s.set(e.target_unchecked_into::<HtmlInputElement>().value())}/><input style={inp} type="number" placeholder="Kilometerstand" oninput={let s=f_skm.clone(); move |e: InputEvent| s.set(e.target_unchecked_into::<HtmlInputElement>().value().parse().unwrap_or(0))}/></div>
+                        <div><div style="font-size:11px; font-weight:800; color:#40c057;">{"NEU-FAHRZEUG (EMPFÄNGER)"}</div><input style={inp} placeholder="VIN" oninput={let s=f_ev.clone(); move |e: InputEvent| s.set(e.target_unchecked_into::<HtmlInputElement>().value())}/><input style={inp} placeholder="Kennzeichen" oninput={let s=f_ekz.clone(); move |e: InputEvent| s.set(e.target_unchecked_into::<HtmlInputElement>().value())}/><input style={inp} type="number" placeholder="Kilometerstand" oninput={let s=f_ekm.clone(); move |e: InputEvent| s.set(e.target_unchecked_into::<HtmlInputElement>().value().parse().unwrap_or(0))}/></div>
+                    </div>
+                    <button style="width:100%; padding:16px; background:#006666; color:#fff; border:none; border-radius:12px; font-weight:700; cursor:pointer;" onclick={on_create}>{"Auftrag anlegen"}</button>
                 </div>
             </div>
         },
-        Tab::Reservations => html! {
-            <div>
-                <h1 style="margin-bottom:32px;">{"Reservations"}</h1>
-                <div style={format!("{}; margin-bottom:24px;", card_style)}>
-                    <div style="display:flex; gap:16px; margin-bottom:16px;">
-                        <input style="flex:1; padding:12px; border:1px solid #dee2e6; border-radius:12px;" placeholder="Person-ID" value={(*r_person).clone()} oninput={on_r_person}/>
-                        <input style="flex:1; padding:12px; border:1px solid #dee2e6; border-radius:12px;" placeholder="Car-ID" value={(*r_car).clone()} oninput={on_r_car}/>
-                        <input style="flex:1; padding:12px; border:1px solid #dee2e6; border-radius:12px;" placeholder="Priority (1(niedrigste) -100(höchste))" value={(*r_prio).clone()} oninput={on_r_prio}/>
-                    </div>
-                    <div style="display:flex; gap:12px;">
-                        <button style="flex:1; padding:12px; background:#006666; color:#fff; border:none; border-radius:12px; font-weight:600; cursor:pointer;" onclick={on_reserve}>{"Create Reservation"}</button>
-                        <button style="flex:1; padding:12px; background:#fff; border:1px solid #dee2e6; border-radius:12px; font-weight:600; cursor:pointer;" onclick={on_cancel_reservation}>{"Cancel"}</button>
-                    </div>
-                </div>
-                <div style={card_style}>
-                    <h3 style="margin-bottom:16px;">{format!("Pending Queue ({})", model.reservations.len())}</h3>
-                    <ul style="list-style:none; padding:0;">
-                        { for model.reservations.iter().map(|r| html!{ 
-                            <li style="padding:12px; border-bottom:1px solid #f1f3f5; display:flex; justify-content:space-between;">
-                                <span><span style="font-weight:600;">{r.person_id.clone()}</span>{" → "}{r.car_id.clone()}</span>
-                                <span style="color:#666; font-size:12px;">{format!("Priority: {}", r.priority)}</span>
-                            </li> 
-                        }) }
-                    </ul>
-                </div>
-            </div>
-        },
-        Tab::Rentals => html! {
-            <div>
-                <h1 style="margin-bottom:32px;">{"Active Rentals"}</h1>
-                <div style={format!("{}; margin-bottom:24px;", card_style)}>
-                    <h3 style="margin-bottom:16px;">{"Return Vehicle"}</h3>
-                    <div style="display:flex; gap:16px; margin-bottom:16px;">
-                        <input style="flex:1; padding:12px; border:1px solid #dee2e6; border-radius:12px;" placeholder="Person-ID" value={(*ret_person).clone()} oninput={on_ret_person}/>
-                        <input style="flex:1; padding:12px; border:1px solid #dee2e6; border-radius:12px;" placeholder="Car-ID" value={(*ret_car).clone()} oninput={on_ret_car}/>
-                        <input style="flex:1; padding:12px; border:1px solid #dee2e6; border-radius:12px;" placeholder="Driven KM" value={(*ret_km).clone()} oninput={on_ret_km}/>
-                    </div>
-                    <button style="width:100%; padding:12px; background:#006666; color:#fff; border:none; border-radius:12px; font-weight:600; cursor:pointer;" onclick={on_return}>{"Process Return"}</button>
-                </div>
-                <div style={card_style}>
-                    <h3 style="margin-bottom:16px;">{format!("Currently Rented ({})", model.rentals.len())}</h3>
-                    <ul style="list-style:none; padding:0;">
-                        { for model.rentals.iter().map(|(p,c)| html!{ 
-                            <li style="padding:12px; border-bottom:1px solid #f1f3f5; font-weight:600;">{format!("{} is driving {}", p, c)}</li> 
-                        }) }
-                    </ul>
-                </div>
-            </div>
-        },
-        Tab::Simulation => html! {
-            <div>
-                <h1 style="margin-bottom:32px;">{"Simulation Settings"}</h1>
-                <div style={card_style}>
-                    <p style="color:#666; margin-bottom:24px;">{"Manage global state and advanced simulation parameters."}</p>
-                    <div style="display:flex; gap:12px;">
-                        <button style="flex:1; padding:12px; background:#fa5252; color:#fff; border:none; border-radius:12px; font-weight:600; cursor:pointer;" onclick={on_reset}>{"Master Reset State"}</button>
-                    </div>
-                    <p style="margin-top:24px; font-size:14px; color:#adb5bd;">{format!("System Epoch: Day {}", model.current_day)}</p>
-                </div>
-            </div>
-        },
+        Tab::Archiv => html! { "Archiv folgt" }
     };
 
     html! {
-        <div style={main_bg}>
-            <aside style={sidebar_style}>
-                <div style="margin-bottom: 40px; padding: 0 16px;">
-                    <h2 style="font-size: 24px; font-weight: 800; margin: 0;">{"Carsharing"}</h2>
-                    <p style="font-size: 11px; font-weight: 800; color: #adb5bd; text-transform: uppercase; letter-spacing: 1px; margin: 4px 0 0 0;">{"Internal Console"}</p>
-                </div>
-                
-                { sidebar_button(&tab, Tab::FleetOverview, "📊", "Fleet Overview", set_tab_overview) }
-                { sidebar_button(&tab, Tab::Persons, "👥", "Persons", set_tab_persons) }
-                { sidebar_button(&tab, Tab::Cars, "🚗", "Cars", set_tab_cars) }
-                { sidebar_button(&tab, Tab::Reservations, "📅", "Reservations", set_tab_res) }
-                { sidebar_button(&tab, Tab::Rentals, "⇄", "Active Rentals", set_tab_rentals) }
-                { sidebar_button(&tab, Tab::Simulation, "⚙️", "Simulation", set_tab_sim) }
-
+        <div style="background:#f8f9fa; min-height:100vh; font-family:'Inter', sans-serif; display:flex;">
+            <aside style="width:260px; background:#fff; border-right:1px solid #e9ecef; padding:32px 16px; position:fixed; height:100vh;">
+                <h2 style="color:#006666; margin-bottom:40px;">{"Kofferwechsel"}</h2>
+                <nav>
+                    <button style={format!("width:100%; padding:12px 16px; text-align:left; border:none; border-radius:12px; cursor:pointer; font-weight:600; margin-bottom:8px; {}", if matches!(*tab, Tab::Dashboard) { "background:#006666; color:#fff;" } else { "background:transparent;" })} onclick={let t=tab.clone(); move |_| t.set(Tab::Dashboard)}>{"📊 Dashboard"}</button>
+                    <button style={format!("width:100%; padding:12px 16px; text-align:left; border:none; border-radius:12px; cursor:pointer; font-weight:600; margin-bottom:8px; {}", if matches!(*tab, Tab::NeuerAuftrag) { "background:#006666; color:#fff;" } else { "background:transparent;" })} onclick={let t=tab.clone(); move |_| t.set(Tab::NeuerAuftrag)}>{"📝 Neuer Auftrag"}</button>
+                    <button style={format!("width:100%; padding:12px 16px; text-align:left; border:none; border-radius:12px; cursor:pointer; font-weight:600; margin-bottom:8px; {}", if matches!(*tab, Tab::Cockpit) { "background:#006666; color:#fff;" } else { "background:transparent;" })} onclick={let t=tab.clone(); move |_| t.set(Tab::Cockpit)}>{"🚗 Auftragsverwaltung"}</button>
+                    <button style={format!("width:100%; padding:12px 16px; text-align:left; border:none; border-radius:12px; cursor:pointer; font-weight:600; margin-bottom:8px; {}", if matches!(*tab, Tab::Archiv) { "background:#006666; color:#fff;" } else { "background:transparent;" })} onclick={let t=tab.clone(); move |_| t.set(Tab::Archiv)}>{"📦 Archiv"}</button>
+                </nav>
+                <div style="position:absolute; bottom:32px; left:16px; font-size:12px; color:#adb5bd;">{ (*info).clone() }</div>
             </aside>
-
-            <main style={content_area}>
-                {content}
-            </main>
+            <main style="flex:1; padding:40px; margin-left:260px;">{ content }</main>
         </div>
     }
 }
 
-fn main() {
-    yew::Renderer::<App>::new().render();
-}
+fn main() { yew::Renderer::<App>::new().render(); }

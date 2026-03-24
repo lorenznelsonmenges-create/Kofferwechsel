@@ -1,32 +1,41 @@
 use axum::{
-    extract::State,
+    extract::{State, Path as AxumPath, Multipart},
     routing::{get, post},
     Json, Router,
     http::Method,
 };
-use sqlx::sqlite::{SqlitePool, SqlitePoolOptions}; // NEU
+use sqlx::sqlite::{SqlitePool, SqlitePoolOptions, SqliteConnectOptions};
 use tower_http::cors::{Any, CorsLayer};
+use tower_http::services::ServeDir;
+use std::str::FromStr;
+use std::fs;
+use std::path::Path;
+use tokio::io::AsyncWriteExt;
 
-pub mod carsharing;
-use crate::carsharing::CarSharing;
+pub mod kofferwechsel;
+use crate::kofferwechsel::{KofferManagement, KofferwechselAuftrag, AuftragsStatus, Auftraggeber, Koffer, Fahrgestell};
 
-// Der AppState ist jetzt der Datenbank-Pool
 type AppState = SqlitePool;
 
 #[tokio::main]
 async fn main() {
-    // --- NEU: Datenbankverbindung aufbauen ---
-    let db_url = "sqlite:data/carsharing.db";
+    // Verzeichnisse anlegen
+    fs::create_dir_all("data/images").expect("Konnte Bilderverzeichnis nicht erstellen");
+
+    let db_url = "sqlite:data/kofferwechsel.db";
+    let connection_options = SqliteConnectOptions::from_str(db_url)
+        .unwrap()
+        .create_if_missing(true);
+
     let pool = SqlitePoolOptions::new()
         .max_connections(5)
-        .connect(db_url)
+        .connect_with(connection_options)
         .await
         .expect("Kann Datenbank nicht verbinden");
 
-    // --- NEU: Tabelle erstellen, falls sie nicht existiert ---
     sqlx::query(
         r#"
-            CREATE TABLE IF NOT EXISTS carsharing_state (
+            CREATE TABLE IF NOT EXISTS koffer_state (
                 id INTEGER PRIMARY KEY NOT NULL,
                 state_json TEXT NOT NULL
             );
@@ -36,16 +45,37 @@ async fn main() {
     .await
     .expect("Tabelle konnte nicht erstellt werden");
 
-    // --- NEU: Sicherstellen, dass eine Zeile zum Speichern existiert ---
-    let initial_state_json = serde_json::to_string(&CarSharing::new()).unwrap();
-    sqlx::query(
-        "INSERT OR IGNORE INTO carsharing_state (id, state_json) VALUES (1, ?);"
-    )
-    .bind(initial_state_json)
-    .execute(&pool)
-    .await
-    .expect("Initialer State konnte nicht eingefügt werden");
+    // Initialer State
+    let mut initial_management = KofferManagement::new();
+    let beispiel_auftrag = KofferwechselAuftrag {
+        auftrags_nummer: "KW-2024-001".to_string(),
+        status: AuftragsStatus::Angenommen,
+        auftraggeber: Auftraggeber { name: "Rettungsdienst Musterstadt".to_string(), kontakt: "disponent@rd-musterstadt.de".to_string() },
+        koffer: Koffer { seriennummer: "SN-RTW-998".to_string(), hersteller: "Fahrtec".to_string(), baujahr: 2018 },
+        spender_fahrgestell: Fahrgestell { vin: "WDB9066331S123456".to_string(), kennzeichen: "MS-RD 112".to_string(), modell: "Mercedes Sprinter (alt)".to_string(), kilometerstand: 245000 },
+        empfaenger_fahrgestell: Fahrgestell { vin: "WDB9076331S789012".to_string(), kennzeichen: "MS-RD 112 (neu)".to_string(), modell: "Mercedes Sprinter (neu)".to_string(), kilometerstand: 50 },
+        start_datum: "2024-03-24".to_string(),
+        geplante_hochzeit: "2024-04-10".to_string(),
+        abschluss_datum: None,
+        umsatz: 45000.0,
+        arbeitsstunden: 120.0,
+        bilder: vec![],
+        checkliste: std::collections::HashMap::from([
+            ("Auspuff".to_string(), true),
+            ("Retarder".to_string(), false),
+            ("Schmutzfänger".to_string(), true),
+            ("Beklebung".to_string(), false),
+        ]),
+        teileliste: vec![],
+    };
+    initial_management.auftraege.push(beispiel_auftrag);
 
+    let initial_state_json = serde_json::to_string(&initial_management).unwrap();
+    sqlx::query("INSERT OR IGNORE INTO koffer_state (id, state_json) VALUES (1, ?);")
+        .bind(initial_state_json)
+        .execute(&pool)
+        .await
+        .expect("Initialer State konnte nicht eingefügt werden");
 
     let cors = CorsLayer::new()
         .allow_methods([Method::GET, Method::POST])
@@ -54,39 +84,66 @@ async fn main() {
 
     let app = Router::new()
         .route("/api/state", get(get_state).post(update_state))
-        .with_state(pool) // Der State ist jetzt der 'pool'
+        .route("/api/upload/{nr}", post(upload_image))
+        .nest_service("/api/images", ServeDir::new("data/images"))
+        .with_state(pool)
         .layer(cors);
 
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:3000").await.unwrap();
-    println!("Backend lauscht auf http://127.0.0.1:3000 und nutzt SQLite");
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
+    println!("Kofferwechsel-Backend lauscht auf http://0.0.0.0:3000");
     axum::serve(listener, app).await.unwrap();
 }
 
-/// Liest den Zustand aus der Datenbank
-async fn get_state(State(pool): State<AppState>) -> Json<CarSharing> {
-    let result: (String,) = sqlx::query_as("SELECT state_json FROM carsharing_state WHERE id = 1")
+async fn get_state(State(pool): State<AppState>) -> Json<KofferManagement> {
+    let result: (String,) = sqlx::query_as("SELECT state_json FROM koffer_state WHERE id = 1")
         .fetch_one(&pool)
         .await
-        .unwrap();
-
-    let state_json = result.0;
-    let car_sharing_data: CarSharing = serde_json::from_str(&state_json).unwrap();
-
-    Json(car_sharing_data)
+        .unwrap_or_else(|_| ("{\"auftraege\":[], \"kunden\":[]}".to_string(),));
+    Json(serde_json::from_str(&result.0).unwrap())
 }
 
-/// Schreibt den neuen Zustand in die Datenbank
-async fn update_state(
-    State(pool): State<AppState>,
-    Json(new_car_sharing_state): Json<CarSharing>,
-) {
-    let state_json = serde_json::to_string(&new_car_sharing_state).unwrap();
-
-    sqlx::query("UPDATE carsharing_state SET state_json = ? WHERE id = 1")
+async fn update_state(State(pool): State<AppState>, Json(new_state): Json<KofferManagement>) {
+    let state_json = serde_json::to_string(&new_state).unwrap();
+    sqlx::query("UPDATE koffer_state SET state_json = ? WHERE id = 1")
         .bind(state_json)
         .execute(&pool)
         .await
         .unwrap();
+}
 
-    println!("Neuen State vom Frontend empfangen und in die DB geschrieben.");
+async fn upload_image(
+    State(pool): State<AppState>,
+    AxumPath(nr): AxumPath<String>,
+    mut multipart: Multipart,
+) -> Result<String, String> {
+    if let Some(field) = multipart.next_field().await.map_err(|e| e.to_string())? {
+        let name = field.file_name().unwrap_or("image.jpg").to_string();
+        let data = field.bytes().await.map_err(|e| e.to_string())?;
+        
+        let filename = format!("{}_{}", nr, name);
+        let path = Path::new("data/images").join(&filename);
+        
+        let mut file = tokio::fs::File::create(&path).await.map_err(|e| e.to_string())?;
+        file.write_all(&data).await.map_err(|e| e.to_string())?;
+
+        // State aktualisieren
+        let result: (String,) = sqlx::query_as("SELECT state_json FROM koffer_state WHERE id = 1")
+            .fetch_one(&pool)
+            .await
+            .map_err(|e| e.to_string())?;
+        
+        let mut management: KofferManagement = serde_json::from_str(&result.0).unwrap();
+        if let Some(a) = management.auftraege.iter_mut().find(|a| a.auftrags_nummer == nr) {
+            a.bilder.push(filename.clone());
+            let state_json = serde_json::to_string(&management).unwrap();
+            sqlx::query("UPDATE koffer_state SET state_json = ? WHERE id = 1")
+                .bind(state_json)
+                .execute(&pool)
+                .await
+                .map_err(|e| e.to_string())?;
+        }
+        
+        return Ok(filename);
+    }
+    Err("Kein Feld gefunden".to_string())
 }
