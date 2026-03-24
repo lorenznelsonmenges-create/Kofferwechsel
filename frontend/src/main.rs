@@ -75,10 +75,10 @@ fn app() -> Html {
     let content = match &*tab {
         Tab::Dashboard => {
             let ab = management.auftraege.iter().filter(|a| a.status == AuftragsStatus::Abgeschlossen).collect::<Vec<_>>();
-            let ak = management.auftraege.iter().filter(|a| a.status != AuftragsStatus::Abgeschlossen && a.status != AuftragsStatus::Archiviert).collect::<Vec<_>>();
+            let ak = management.auftraege.iter().filter(|a| a.status != AuftragsStatus::Abgeschlossen && a.status != AuftragsStatus::Storniert).collect::<Vec<_>>();
             let gu: f64 = ab.iter().map(|a| a.umsatz).sum();
             let pu: f64 = ak.iter().map(|a| a.umsatz).sum();
-            let mut vorschlaege: Vec<String> = management.auftraege.iter().filter(|a| a.status != AuftragsStatus::Archiviert).map(|a| a.auftrags_nummer.clone()).collect();
+            let mut vorschlaege: Vec<String> = management.auftraege.iter().map(|a| a.auftrags_nummer.clone()).collect();
             vorschlaege.sort(); vorschlaege.dedup();
             html! {
                 <div>
@@ -99,8 +99,8 @@ fn app() -> Html {
             }
         },
         Tab::Cockpit => {
-            let gef = management.auftraege.iter().filter(|a| a.status != AuftragsStatus::Archiviert).collect::<Vec<_>>();
-            let mut vorschlaege: Vec<String> = management.auftraege.iter().filter(|a| a.status != AuftragsStatus::Archiviert).map(|a| a.auftrags_nummer.clone()).collect();
+            let gef = management.auftraege.iter().filter(|a| a.status != AuftragsStatus::Abgeschlossen && a.status != AuftragsStatus::Storniert).collect::<Vec<_>>();
+            let mut vorschlaege: Vec<String> = management.auftraege.iter().map(|a| a.auftrags_nummer.clone()).collect();
             vorschlaege.sort(); vorschlaege.dedup();
             html! {
                 <div>
@@ -112,34 +112,42 @@ fn app() -> Html {
                             <datalist id="search-vorschlaege">{ for vorschlaege.iter().map(|v| html! { <option value={v.clone()} /> }) }</datalist>
                         </div>
                     </div>
-                    { for gef.iter().map(|a| {
-                        let nr = a.auftrags_nummer.clone(); let t = tab.clone(); let ms = management.clone(); let ss = save.clone();
-                        let (bg, color) = match a.status {
-                            AuftragsStatus::Angenommen => ("#e7f5ff", "#228be6"), AuftragsStatus::InArbeit => ("#fff4e6", "#fd7e14"), AuftragsStatus::Bereitstellung => ("#f3f0ff", "#7950f2"), AuftragsStatus::Abgeschlossen => ("#ebfbee", "#40c057"), AuftragsStatus::Archiviert => ("#f1f3f5", "#495057"), _ => ("#f8f9fa", "#868e96"),
-                        };
+                    { if gef.is_empty() {
+                        html! { <div style={card}>{"Keine aktiven Aufträge vorhanden."}</div> }
+                    } else {
                         html! {
-                            <div style={card}>
-                                <div style="display:flex; justify-content:space-between;">
-                                    <div><div style="font-size:12px; color:#666;">{&a.auftrags_nummer}</div><h2>{&a.auftraggeber.name}</h2></div>
-                                    <div style="text-align:right;">
-                                        <div style="font-size:20px; font-weight:800; color:#006666; margin-bottom:8px;">{format!("{:.0} €", a.umsatz)}</div>
-                                        <select style={format!("padding:6px 12px; border-radius:12px; border:none; font-size:12px; font-weight:700; text-transform:uppercase; cursor:pointer; background:{bg}; color:{color}; appearance:none; text-align:center; min-width:140px;")} onchange={let nr=nr.clone(); let m=ms.clone(); let s=ss.clone(); move |e: Event| { let val=e.target_unchecked_into::<web_sys::HtmlSelectElement>().value(); let status=match val.as_str() { "Angenommen"=>AuftragsStatus::Angenommen, "InArbeit"=>AuftragsStatus::InArbeit, "Bereitstellung"=>AuftragsStatus::Bereitstellung, "Abgeschlossen"=>AuftragsStatus::Abgeschlossen, "Archiviert"=>AuftragsStatus::Archiviert, _=>AuftragsStatus::Angenommen }; let mut nm=(*m).clone(); if let Some(x)=nm.auftraege.iter_mut().find(|x| x.auftrags_nummer==nr) { x.status=status; s.emit(nm); } }}>
-                                            <option value="Angenommen" selected={a.status == AuftragsStatus::Angenommen}>{"Angenommen"}</option><option value="InArbeit" selected={a.status == AuftragsStatus::InArbeit}>{"In Arbeit"}</option><option value="Bereitstellung" selected={a.status == AuftragsStatus::Bereitstellung}>{"Bereitstellung"}</option><option value="Abgeschlossen" selected={a.status == AuftragsStatus::Abgeschlossen}>{"Abgeschlossen"}</option><option value="Archiviert" selected={a.status == AuftragsStatus::Archiviert}>{"Archiviert"}</option>
-                                        </select>
-                                    </div>
-                                </div>
-                                <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:20px; font-size:14px; border-top:1px solid #f1f3f5; margin-top:16px; padding-top:16px;">
-                                    <div><div style="font-size:11px; color:#adb5bd;">{"KOFFER-AUFBAU"}</div><div>{format!("{} (SN: {})", a.koffer.hersteller, a.koffer.seriennummer)}</div></div>
-                                    <div><div style="font-size:11px; color:#adb5bd;">{"ALTES FAHRZEUG"}</div><div>{format!("{} ({} km)", a.spender_fahrgestell.kennzeichen, a.spender_fahrgestell.kilometerstand)}</div></div>
-                                    <div><div style="font-size:11px; color:#adb5bd;">{"NEUES FAHRZEUG"}</div><div>{format!("{} ({} km)", a.empfaenger_fahrgestell.kennzeichen, a.empfaenger_fahrgestell.kilometerstand)}</div></div>
-                                </div>
-                                <div style="margin-top:20px; display:flex; gap:8px; justify-content:space-between; align-items:center;">
-                                    <button style="padding:8px 16px; background:#006666; color:#fff; border:none; border-radius:8px; cursor:pointer;" onclick={let t=t.clone(); let n=nr.clone(); move |_| t.set(Tab::Details(n.clone()))}>{"Spezifizieren"}</button>
-                                    <button style="background:none; border:none; cursor:pointer; font-size:18px; padding:8px;" onclick={let nr=nr.clone(); let m=ms.clone(); let s=ss.clone(); move |_| { if web_sys::window().unwrap().confirm_with_message(&format!("Auftrag {} löschen?", nr)).unwrap_or(false) { let mut nm=(*m).clone(); nm.auftraege.retain(|x| x.auftrags_nummer!=nr); s.emit(nm); } }}>{"🗑️"}</button>
-                                </div>
-                            </div>
+                            <>
+                                { for gef.iter().map(|a| {
+                                    let nr = a.auftrags_nummer.clone(); let t = tab.clone(); let ms = management.clone(); let ss = save.clone();
+                                    let (bg, color) = match a.status {
+                                        AuftragsStatus::Angenommen => ("#e7f5ff", "#228be6"), AuftragsStatus::InArbeit => ("#fff4e6", "#fd7e14"), AuftragsStatus::Bereitstellung => ("#f3f0ff", "#7950f2"), AuftragsStatus::Abgeschlossen => ("#ebfbee", "#40c057"), AuftragsStatus::Storniert => ("#fff5f5", "#fa5252"),
+                                    };
+                                    html! {
+                                        <div style={card}>
+                                            <div style="display:flex; justify-content:space-between;">
+                                                <div><div style="font-size:12px; color:#666;">{&a.auftrags_nummer}</div><h2>{&a.auftraggeber.name}</h2></div>
+                                                <div style="text-align:right;">
+                                                    <div style="font-size:20px; font-weight:800; color:#006666; margin-bottom:8px;">{format!("{:.0} €", a.umsatz)}</div>
+                                                    <select style={format!("padding:6px 28px 6px 12px; border-radius:12px; border:none; font-size:12px; font-weight:700; text-transform:uppercase; cursor:pointer; background:{bg}; color:{color}; appearance:none; text-align:center; min-width:140px; background-image: url(\"data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='{}'%3e%3cpath d='M7 10l5 5 5-5z'/%3e%3c/svg%3e\"); background-repeat: no-repeat; background-position: right 8px center; background-size: 18px;", color.replace("#", "%23"))} onchange={let nr=nr.clone(); let m=ms.clone(); let s=ss.clone(); move |e: Event| { let val=e.target_unchecked_into::<web_sys::HtmlSelectElement>().value(); let status=match val.as_str() { "Angenommen"=>AuftragsStatus::Angenommen, "InArbeit"=>AuftragsStatus::InArbeit, "Bereitstellung"=>AuftragsStatus::Bereitstellung, "Abgeschlossen"=>AuftragsStatus::Abgeschlossen, "Storniert"=>AuftragsStatus::Storniert, _=>AuftragsStatus::Angenommen }; let mut nm=(*m).clone(); if let Some(x)=nm.auftraege.iter_mut().find(|x| x.auftrags_nummer==nr) { x.status=status; s.emit(nm); } }}>
+                                                        <option value="Angenommen" selected={a.status == AuftragsStatus::Angenommen}>{"Angenommen"}</option><option value="InArbeit" selected={a.status == AuftragsStatus::InArbeit}>{"In Arbeit"}</option><option value="Bereitstellung" selected={a.status == AuftragsStatus::Bereitstellung}>{"Bereitstellung"}</option><option value="Abgeschlossen" selected={a.status == AuftragsStatus::Abgeschlossen}>{"Abgeschlossen"}</option><option value="Storniert" selected={a.status == AuftragsStatus::Storniert}>{"Storniert"}</option>
+                                                    </select>
+                                                </div>
+                                            </div>
+                                            <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:20px; font-size:14px; border-top:1px solid #f1f3f5; margin-top:16px; padding-top:16px;">
+                                                <div><div style="font-size:11px; color:#adb5bd;">{"KOFFER-AUFBAU"}</div><div>{format!("{} (SN: {})", a.koffer.hersteller, a.koffer.seriennummer)}</div></div>
+                                                <div><div style="font-size:11px; color:#adb5bd;">{"ALTES FAHRZEUG"}</div><div>{format!("{} ({} km)", a.spender_fahrgestell.kennzeichen, a.spender_fahrgestell.kilometerstand)}</div></div>
+                                                <div><div style="font-size:11px; color:#adb5bd;">{"NEUES FAHRZEUG"}</div><div>{format!("{} ({} km)", a.empfaenger_fahrgestell.kennzeichen, a.empfaenger_fahrgestell.kilometerstand)}</div></div>
+                                            </div>
+                                            <div style="margin-top:20px; display:flex; gap:8px; justify-content:space-between; align-items:center;">
+                                                <button style="padding:8px 16px; background:#006666; color:#fff; border:none; border-radius:8px; cursor:pointer;" onclick={let t=t.clone(); let n=nr.clone(); move |_| t.set(Tab::Details(n.clone()))}>{"Spezifizieren"}</button>
+                                                <button style="background:none; border:none; cursor:pointer; font-size:18px; padding:8px;" onclick={let nr=nr.clone(); let m=ms.clone(); let s=ss.clone(); move |_| { if web_sys::window().unwrap().confirm_with_message(&format!("Auftrag {} löschen?", nr)).unwrap_or(false) { let mut nm=(*m).clone(); nm.auftraege.retain(|x| x.auftrags_nummer!=nr); s.emit(nm); } }}>{"🗑️"}</button>
+                                            </div>
+                                        </div>
+                                    }
+                                })}
+                            </>
                         }
-                    })}
+                    }}
                 </div>
             }
         },
@@ -147,12 +155,18 @@ fn app() -> Html {
             let a = management.auftraege.iter().find(|a| &a.auftrags_nummer == nr);
             match a {
                 Some(a) => {
-                    let is_archiv = a.status == AuftragsStatus::Archiviert;
+                    let is_archiv = a.status == AuftragsStatus::Abgeschlossen || a.status == AuftragsStatus::Storniert;
                     let nr_str = a.auftrags_nummer.clone();
+                    let (bg, color) = match a.status {
+                        AuftragsStatus::Angenommen => ("#e7f5ff", "#228be6"), AuftragsStatus::InArbeit => ("#fff4e6", "#fd7e14"), AuftragsStatus::Bereitstellung => ("#f3f0ff", "#7950f2"), AuftragsStatus::Abgeschlossen => ("#ebfbee", "#40c057"), AuftragsStatus::Storniert => ("#fff5f5", "#fa5252"),
+                    };
                     html! {
                         <div>
                             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
                                 <button style="color:#006666; font-weight:700; cursor:pointer; background:none; border:none;" onclick={let t=tab.clone(); move |_| t.set(if is_archiv { Tab::Archiv } else { Tab::Cockpit })}>{"← Zurück"}</button>
+                                <select style={format!("padding:6px 28px 6px 12px; border-radius:12px; border:none; font-size:12px; font-weight:700; text-transform:uppercase; cursor:pointer; background:{bg}; color:{color}; appearance:none; -webkit-appearance:none; text-align:center; min-width:140px; background-image: url(\"data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='{}'%3e%3cpath d='M7 10l5 5 5-5z'/%3e%3c/svg%3e\"); background-repeat: no-repeat; background-position: right 8px center; background-size: 18px;", color.replace("#", "%23"))} onchange={let nr=nr_str.clone(); let m=management.clone(); let s=save.clone(); move |e: Event| { let val=e.target_unchecked_into::<web_sys::HtmlSelectElement>().value(); let status=match val.as_str() { "Angenommen"=>AuftragsStatus::Angenommen, "InArbeit"=>AuftragsStatus::InArbeit, "Bereitstellung"=>AuftragsStatus::Bereitstellung, "Abgeschlossen"=>AuftragsStatus::Abgeschlossen, "Storniert"=>AuftragsStatus::Storniert, _=>AuftragsStatus::Angenommen }; let mut nm=(*m).clone(); if let Some(x)=nm.auftraege.iter_mut().find(|x| x.auftrags_nummer==nr) { x.status=status; s.emit(nm); } }}>
+                                    <option value="Angenommen" selected={a.status == AuftragsStatus::Angenommen}>{"Angenommen"}</option><option value="InArbeit" selected={a.status == AuftragsStatus::InArbeit}>{"In Arbeit"}</option><option value="Bereitstellung" selected={a.status == AuftragsStatus::Bereitstellung}>{"Bereitstellung"}</option><option value="Abgeschlossen" selected={a.status == AuftragsStatus::Abgeschlossen}>{"Abgeschlossen"}</option><option value="Storniert" selected={a.status == AuftragsStatus::Storniert}>{"Storniert"}</option>
+                                </select>
                             </div>
                             <div style={card}>
                                 <div style="margin-bottom:24px; padding-bottom:24px; border-bottom:1px solid #f1f3f5; display:flex; justify-content:space-between; align-items:flex-end;">
@@ -226,19 +240,11 @@ fn app() -> Html {
                                     <tbody>
                                         { for a.bilder.iter().map(|f| {
                                             let img_url = format!("http://127.0.0.1:3000/api/images/{}", f);
-                                            let f_name = f.clone(); let nr = nr_str.clone(); 
-                                            let l = load.clone();
-                                            let sel1 = selected_image.clone();
-                                            let f_name1 = f_name.clone();
+                                            let sel1 = selected_image.clone(); let f_name1 = f.clone(); let nr1 = nr_str.clone(); let l1 = load.clone();
                                             html! { 
                                                 <tr style="border-bottom:1px solid #f1f3f5;">
                                                     <td style="padding:12px; font-weight:600; color:#006666; cursor:pointer;" onclick={move |_| sel1.set(Some(f_name1.clone()))}>{f}</td>
-                                                    <td style="padding:12px; text-align:center;">
-                                                        <div style="display:flex; gap:12px; justify-content:center; align-items:center;">
-                                                            <a href={img_url} target="_blank" style="text-decoration:none; font-size:18px;" title="In neuem Tab öffnen">{"💾"}</a>
-                                                            <button style="background:none; border:none; cursor:pointer; font-size:18px;" onclick={let f_name=f_name.clone(); let nr=nr.clone(); let l=l.clone(); move |_| { if web_sys::window().unwrap().confirm_with_message(&format!("{} löschen?", f_name)).unwrap_or(false) { let f_name=f_name.clone(); let nr=nr.clone(); let l=l.clone(); spawn_local(async move { let _=Request::post(&format!("http://127.0.0.1:3000/api/delete-image/{}/{}", nr, f_name)).send().await; l.emit(()); }); } }}>{"🗑️"}</button>
-                                                        </div>
-                                                    </td>
+                                                    <td style="padding:12px; text-align:center;"><div style="display:flex; gap:12px; justify-content:center; align-items:center;"><a href={img_url} target="_blank" style="text-decoration:none; font-size:18px;" title="In neuem Tab öffnen">{"💾"}</a><button style="background:none; border:none; cursor:pointer; font-size:18px;" onclick={let f_name=f.clone(); let nr=nr1.clone(); let l=l1.clone(); move |_| { if web_sys::window().unwrap().confirm_with_message(&format!("{} löschen?", f_name)).unwrap_or(false) { let f_name=f_name.clone(); let nr=nr.clone(); let l=l.clone(); spawn_local(async move { let _=Request::post(&format!("http://127.0.0.1:3000/api/delete-image/{}/{}", nr, f_name)).send().await; l.emit(()); }); } }}>{"🗑️"}</button></div></td>
                                                 </tr>
                                             }
                                         }) }
@@ -259,11 +265,12 @@ fn app() -> Html {
             let mut kunden_liste: Vec<String> = vec!["Deutsches Rotes Kreuz".to_string(), "Malteser".to_string(), "Feuerwehr Leipzig".to_string()];
             kunden_liste.extend(management.auftraege.iter().map(|a| a.auftraggeber.name.clone()));
             kunden_liste.sort(); kunden_liste.dedup();
-            let is_valid = !f_nr.is_empty() && !f_kn.is_empty() && !f_ks.is_empty() && !f_kh.is_empty() && !f_sv.is_empty() && !f_skz.is_empty() && !f_ev.is_empty() && !f_ekz.is_empty() && f_skm.is_some() && f_ekm.is_some() && f_kj.is_some();
+            let exists = management.auftraege.iter().any(|a| a.auftrags_nummer == *f_nr);
+            let is_valid = !f_nr.is_empty() && !exists && !f_kn.is_empty() && !f_ks.is_empty() && !f_kh.is_empty() && !f_sv.is_empty() && !f_skz.is_empty() && !f_ev.is_empty() && !f_ekz.is_empty() && f_skm.is_some() && f_ekm.is_some() && f_kj.is_some();
             html! {
                 <div style="width:100%;"><h1>{"📝 Neuer Auftrag"}</h1><div style={card}>
                     <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
-                        <input style={inp} placeholder="Auftrags-Nummer" value={(*f_nr).clone()} oninput={let s=f_nr.clone(); move |e: InputEvent| s.set(e.target_unchecked_into::<HtmlInputElement>().value())}/>
+                        <div style="display:flex; flex-direction:column; gap:4px;"><input style={format!("{} {}", inp, if exists { "border-color: #fa5252; background: #fff5f5;" } else { "" })} placeholder="Auftrags-Nummer" value={(*f_nr).clone()} oninput={let s=f_nr.clone(); move |e: InputEvent| s.set(e.target_unchecked_into::<HtmlInputElement>().value())}/>{ if exists { html! { <span style="font-size:10px; color:#fa5252; font-weight:700; margin-left:4px;">{"NUMMER BEREITS VERGEBEN"}</span> } } else { html! {} } }</div>
                         <div><input style={inp} list="kunden-liste" placeholder="Kunde auswählen oder neu eingeben" value={(*f_kn).clone()} oninput={let s=f_kn.clone(); move |e: InputEvent| s.set(e.target_unchecked_into::<HtmlInputElement>().value())}/><datalist id="kunden-liste">{ for kunden_liste.iter().map(|k| html! { <option value={k.clone()} /> }) }</datalist></div>
                     </div>
                     <h3 style="margin-top:24px;">{"Koffer-Details"}</h3>
@@ -281,13 +288,17 @@ fn app() -> Html {
             }
         },
         Tab::Archiv => {
-            let archiv = management.auftraege.iter().filter(|a| a.status == AuftragsStatus::Archiviert).collect::<Vec<_>>();
+            let archiv = management.auftraege.iter().filter(|a| a.status == AuftragsStatus::Abgeschlossen || a.status == AuftragsStatus::Storniert).collect::<Vec<_>>();
             html! {
-                <div><h1>{"📦 Archiv"}</h1><p style="color:#666; margin-bottom:32px;">{"Abgeschlossene und archivierte Aufträge zur Dokumentation."}</p>
+                <div><h1>{"📦 Archiv"}</h1><p style="color:#666; margin-bottom:32px;">{"Abgeschlossene und stornierte Aufträge zur Dokumentation."}</p>
                     { if archiv.is_empty() { html! { <div style={card}>{"Keine archivierten Aufträge vorhanden."}</div> } } else {
                         html! { <table style="width:100%; background:#fff; border-radius:16px; border-collapse:collapse; overflow:hidden; box-shadow:0 4px 20px rgba(0,0,0,0.05);">
                                 <thead><tr style="background:#f8f9fa; text-align:left; border-bottom:2px solid #f1f3f5;"><th style="padding:16px;">{"Nr."}</th><th style="padding:16px;">{"Kunde"}</th><th style="padding:16px;">{"Koffer"}</th><th style="padding:16px;">{"Umsatz"}</th><th style="padding:16px;">{"Status"}</th></tr></thead>
-                                <tbody> { for archiv.iter().map(|a| html! { <tr style="border-bottom:1px solid #f1f3f5; cursor:pointer;" onclick={let t=tab.clone(); let nr=a.auftrags_nummer.clone(); move |_| t.set(Tab::Details(nr.clone()))}><td style="padding:16px; font-weight:700;">{&a.auftrags_nummer}</td><td style="padding:16px;">{&a.auftraggeber.name}</td><td style="padding:16px;">{&a.koffer.seriennummer}</td><td style="padding:16px;">{format!("{:.0} €", a.umsatz)}</td><td style="padding:16px;"><span style="background:#f1f3f5; color:#495057; padding:4px 10px; border-radius:10px; font-size:11px; font-weight:700;">{"ARCHIVIERT"}</span></td></tr> })} </tbody>
+                                <tbody> { for archiv.iter().map(|a| {
+                                    let nr=a.auftrags_nummer.clone(); let t=tab.clone();
+                                    let (bg, color) = match a.status { AuftragsStatus::Abgeschlossen => ("#ebfbee", "#40c057"), AuftragsStatus::Storniert => ("#fff5f5", "#fa5252"), _ => ("#f1f3f5", "#495057") };
+                                    html! { <tr style="border-bottom:1px solid #f1f3f5; cursor:pointer;" onclick={move |_| t.set(Tab::Details(nr.clone()))}><td style="padding:16px; font-weight:700;">{&a.auftrags_nummer}</td><td style="padding:16px;">{&a.auftraggeber.name}</td><td style="padding:16px;">{&a.koffer.seriennummer}</td><td style="padding:16px;">{format!("{:.0} €", a.umsatz)}</td><td style="padding:16px;"><span style={format!("background:{bg}; color:{color}; padding:4px 10px; border-radius:10px; font-size:11px; font-weight:700; text-transform:uppercase;")}>{format!("{:?}", a.status)}</span></td></tr> }
+                                })} </tbody>
                             </table> }
                     }}
                 </div>
@@ -298,7 +309,7 @@ fn app() -> Html {
     html! {
         <div style="background:#f8f9fa; min-height:100vh; font-family:'Inter', sans-serif; display:flex;">
             <aside style="width:260px; background:#fff; border-right:1px solid #e9ecef; padding:32px 16px; position:fixed; height:100vh;">
-                <h2 style="color:#006666; margin-bottom:40px;">{"Kofferwechsel-Software"}</h2>
+                <h2 style="color:#006666; margin-bottom:40px; cursor:pointer;" onclick={let t=tab.clone(); move |_| t.set(Tab::Dashboard)}>{"Kofferwechsel-Software"}</h2>
                 <nav>
                     <button style={format!("width:100%; padding:12px 16px; text-align:left; border:none; border-radius:12px; cursor:pointer; font-weight:600; margin-bottom:8px; {}", if matches!(*tab, Tab::Dashboard) { "background:#006666; color:#fff;" } else { "background:transparent;" })} onclick={let t=tab.clone(); move |_| t.set(Tab::Dashboard)}>{"📊 Dashboard"}</button>
                     <button style={format!("width:100%; padding:12px 16px; text-align:left; border:none; border-radius:12px; cursor:pointer; font-weight:600; margin-bottom:8px; {}", if matches!(*tab, Tab::NeuerAuftrag) { "background:#006666; color:#fff;" } else { "background:transparent;" })} onclick={let t=tab.clone(); move |_| t.set(Tab::NeuerAuftrag)}>{"📝 Neuer Auftrag"}</button>

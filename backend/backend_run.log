@@ -1,1 +1,19 @@
+warning: unused imports: `Auftraggeber`, `AuftragsStatus`, `Fahrgestell`, `Koffer`, and `KofferwechselAuftrag`
+  --> backend/src/main.rs:16:46
+   |
+16 | ...t, KofferwechselAuftrag, AuftragsStatus, Auftraggeber, Koffer, Fahrgestell};
+   |       ^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^  ^^^^^^^^^^^^  ^^^^^^  ^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` on by default
+
+warning: variable does not need to be mutable
+  --> backend/src/main.rs:47:9
+   |
+47 |     let mut initial_management = KofferManagement::new();
+   |         ----^^^^^^^^^^^^^^^^^^
+   |         |
+   |         help: remove this `mut`
+   |
+   = note: `#[warn(unused_mut)]` on by default
+
 Kofferwechsel-Backend lauscht auf http://0.0.0.0:3000

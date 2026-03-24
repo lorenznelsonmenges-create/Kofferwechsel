@@ -6,7 +6,6 @@ pub enum AuftragsStatus {
     InArbeit,
     Bereitstellung,
     Abgeschlossen,
-    Archiviert,
     Storniert,
 }
 
@@ -108,17 +107,15 @@ impl KofferService for KofferManagement {
 
     fn lade_aktive_auftraege(&self) -> Vec<KofferwechselAuftrag> {
         self.auftraege.iter()
-            .filter(|a| a.status != AuftragsStatus::Archiviert && a.status != AuftragsStatus::Storniert)
+            .filter(|a| a.status != AuftragsStatus::Abgeschlossen && a.status != AuftragsStatus::Storniert)
             .cloned()
             .collect()
     }
 
     fn archiviere_auftrag(&mut self, auftrags_nummer: &str) -> bool {
         if let Some(auftrag) = self.auftraege.iter_mut().find(|a| a.auftrags_nummer == auftrags_nummer) {
-            if auftrag.status == AuftragsStatus::Abgeschlossen {
-                auftrag.status = AuftragsStatus::Archiviert;
-                return true;
-            }
+            auftrag.status = AuftragsStatus::Abgeschlossen;
+            return true;
         }
         false
     }

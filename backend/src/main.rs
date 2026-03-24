@@ -19,7 +19,6 @@ type AppState = SqlitePool;
 
 #[tokio::main]
 async fn main() {
-    // Verzeichnisse anlegen
     fs::create_dir_all("data/images").expect("Konnte Bilderverzeichnis nicht erstellen");
 
     let db_url = "sqlite:data/kofferwechsel.db";
@@ -45,31 +44,7 @@ async fn main() {
     .await
     .expect("Tabelle konnte nicht erstellt werden");
 
-    // Initialer State
     let mut initial_management = KofferManagement::new();
-    let beispiel_auftrag = KofferwechselAuftrag {
-        auftrags_nummer: "KW-2024-001".to_string(),
-        status: AuftragsStatus::Angenommen,
-        auftraggeber: Auftraggeber { name: "Rettungsdienst Musterstadt".to_string(), kontakt: "disponent@rd-musterstadt.de".to_string() },
-        koffer: Koffer { seriennummer: "SN-RTW-998".to_string(), hersteller: "Fahrtec".to_string(), baujahr: 2018 },
-        spender_fahrgestell: Fahrgestell { vin: "WDB9066331S123456".to_string(), kennzeichen: "MS-RD 112".to_string(), modell: "Mercedes Sprinter (alt)".to_string(), kilometerstand: 245000 },
-        empfaenger_fahrgestell: Fahrgestell { vin: "WDB9076331S789012".to_string(), kennzeichen: "MS-RD 112 (neu)".to_string(), modell: "Mercedes Sprinter (neu)".to_string(), kilometerstand: 50 },
-        start_datum: "2024-03-24".to_string(),
-        geplante_hochzeit: "2024-04-10".to_string(),
-        abschluss_datum: None,
-        umsatz: 45000.0,
-        arbeitsstunden: 120.0,
-        bilder: vec![],
-        checkliste: std::collections::HashMap::from([
-            ("Auspuff".to_string(), true),
-            ("Retarder".to_string(), false),
-            ("Schmutzfänger".to_string(), true),
-            ("Beklebung".to_string(), false),
-        ]),
-        teileliste: vec![],
-    };
-    initial_management.auftraege.push(beispiel_auftrag);
-
     let initial_state_json = serde_json::to_string(&initial_management).unwrap();
     sqlx::query("INSERT OR IGNORE INTO koffer_state (id, state_json) VALUES (1, ?);")
         .bind(initial_state_json)
@@ -120,30 +95,18 @@ async fn upload_image(
     if let Some(field) = multipart.next_field().await.map_err(|e| e.to_string())? {
         let name = field.file_name().unwrap_or("image.jpg").to_string();
         let data = field.bytes().await.map_err(|e| e.to_string())?;
-        
         let filename = format!("{}_{}", nr, name);
         let path = Path::new("data/images").join(&filename);
-        
         let mut file = tokio::fs::File::create(&path).await.map_err(|e| e.to_string())?;
         file.write_all(&data).await.map_err(|e| e.to_string())?;
 
-        // State aktualisieren
-        let result: (String,) = sqlx::query_as("SELECT state_json FROM koffer_state WHERE id = 1")
-            .fetch_one(&pool)
-            .await
-            .map_err(|e| e.to_string())?;
-        
+        let result: (String,) = sqlx::query_as("SELECT state_json FROM koffer_state WHERE id = 1").fetch_one(&pool).await.map_err(|e| e.to_string())?;
         let mut management: KofferManagement = serde_json::from_str(&result.0).unwrap();
         if let Some(a) = management.auftraege.iter_mut().find(|a| a.auftrags_nummer == nr) {
             a.bilder.push(filename.clone());
             let state_json = serde_json::to_string(&management).unwrap();
-            sqlx::query("UPDATE koffer_state SET state_json = ? WHERE id = 1")
-                .bind(state_json)
-                .execute(&pool)
-                .await
-                .map_err(|e| e.to_string())?;
+            sqlx::query("UPDATE koffer_state SET state_json = ? WHERE id = 1").bind(state_json).execute(&pool).await.map_err(|e| e.to_string())?;
         }
-        
         return Ok(filename);
     }
     Err("Kein Feld gefunden".to_string())
@@ -154,25 +117,13 @@ async fn delete_image(
     AxumPath((nr, filename)): AxumPath<(String, String)>,
 ) -> Result<String, String> {
     let path = Path::new("data/images").join(&filename);
-    if path.exists() {
-        let _ = fs::remove_file(path);
-    }
-
-    let result: (String,) = sqlx::query_as("SELECT state_json FROM koffer_state WHERE id = 1")
-        .fetch_one(&pool)
-        .await
-        .map_err(|e| e.to_string())?;
-    
+    if path.exists() { let _ = fs::remove_file(path); }
+    let result: (String,) = sqlx::query_as("SELECT state_json FROM koffer_state WHERE id = 1").fetch_one(&pool).await.map_err(|e| e.to_string())?;
     let mut management: KofferManagement = serde_json::from_str(&result.0).unwrap();
     if let Some(a) = management.auftraege.iter_mut().find(|a| a.auftrags_nummer == nr) {
         a.bilder.retain(|b| b != &filename);
         let state_json = serde_json::to_string(&management).unwrap();
-        sqlx::query("UPDATE koffer_state SET state_json = ? WHERE id = 1")
-            .bind(state_json)
-            .execute(&pool)
-            .await
-            .map_err(|e| e.to_string())?;
+        sqlx::query("UPDATE koffer_state SET state_json = ? WHERE id = 1").bind(state_json).execute(&pool).await.map_err(|e| e.to_string())?;
     }
-    
     Ok("Gelöscht".to_string())
 }
