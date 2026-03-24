@@ -123,9 +123,7 @@ fn app() -> Html {
                             <datalist id="search-vorschlaege">{ for vorschlaege.iter().map(|v| html! { <option value={v.clone()} /> }) }</datalist>
                         </div>
                     </div>
-                    { if gef.is_empty() {
-                        html! { <div style={card}>{"Keine aktiven Aufträge vorhanden."}</div> }
-                    } else {
+                    { if gef.is_empty() { html! { <div style={card}>{"Keine aktiven Aufträge vorhanden."}</div> } } else {
                         html! { <> { for gef.iter().map(|a| {
                             let nr = a.auftrags_nummer.clone(); let t = tab.clone(); let ms = management.clone(); let ss = save.clone();
                             let (bg, color) = match a.status { AuftragsStatus::Angenommen => ("#e7f5ff", "#228be6"), AuftragsStatus::InArbeit => ("#fff4e6", "#fd7e14"), AuftragsStatus::Bereitstellung => ("#f3f0ff", "#7950f2"), AuftragsStatus::Abgeschlossen => ("#ebfbee", "#40c057"), AuftragsStatus::Storniert => ("#fff5f5", "#fa5252") };
@@ -166,7 +164,7 @@ fn app() -> Html {
                     html! {
                         <div>
                             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
-                                <button style="color:#006666; font-weight:700; cursor:pointer; background:none; border:none;" onclick={let t=tab.clone(); move |_| t.set(if is_archiv { Tab::Archiv } else { Tab::Cockpit })}>{"← Zurück"}</button>
+                                <button style="padding:8px 16px; background:#006666; color:#fff; border:none; border-radius:8px; cursor:pointer; font-weight:600;" onclick={let t=tab.clone(); move |_| t.set(if is_archiv { Tab::Archiv } else { Tab::Cockpit })}>{"← Zurück"}</button>
                                 <div style="display:flex; align-items:center; gap:16px;">
                                     { if let Some(ende) = &a.abschluss_datum { html! { <span style="font-size:12px; font-weight:700; color:#40c057;">{"Abgeschlossen am: "}{ende}</span> } } else { html! {} } }
                                     <select style={format!("padding:6px 28px 6px 12px; border-radius:12px; border:none; font-size:12px; font-weight:700; text-transform:uppercase; cursor:pointer; background:{bg}; color:{color}; appearance:none; -webkit-appearance:none; text-align:center; min-width:140px; background-image: url(\"data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='{}'%3e%3cpath d='M7 10l5 5 5-5z'/%3e%3c/svg%3e\"); background-repeat: no-repeat; background-position: right 8px center; background-size: 18px;", color.replace("#", "%23"))} onchange={let nr=nr_str.clone(); let m=management.clone(); let s=save.clone(); move |e: Event| { let val=e.target_unchecked_into::<web_sys::HtmlSelectElement>().value(); let status=match val.as_str() { "Angenommen"=>AuftragsStatus::Angenommen, "InArbeit"=>AuftragsStatus::InArbeit, "Bereitstellung"=>AuftragsStatus::Bereitstellung, "Abgeschlossen"=>AuftragsStatus::Abgeschlossen, "Storniert"=>AuftragsStatus::Storniert, _=>AuftragsStatus::Angenommen }; let mut nm=(*m).clone(); if let Some(x)=nm.auftraege.iter_mut().find(|x| x.auftrags_nummer==nr) { x.status=status.clone(); if status == AuftragsStatus::Abgeschlossen { x.abschluss_datum = Some(get_current_date()); } else { x.abschluss_datum = None; } s.emit(nm); } }}>
@@ -175,19 +173,34 @@ fn app() -> Html {
                                 </div>
                             </div>
                             <div style={card}>
-                                <div style="margin-bottom:24px; padding-bottom:24px; border-bottom:1px solid #f1f3f5; display:flex; justify-content:space-between; align-items:flex-end;">
-                                    <div><span style="font-size:11px; color:#adb5bd; text-transform:uppercase; font-weight:800;">{"Kunde"}</span><div style="font-size:28px; font-weight:800; color:#1a1a1a;">{&a.auftraggeber.name}</div></div>
-                                    <div style="text-align:right;">
-                                        <span style="font-size:11px; color:#adb5bd; text-transform:uppercase; font-weight:800;">{"Erstellt am "}{&a.start_datum}</span>
-                                        <div style="font-size:28px; font-weight:800; color:#006666;">{&a.auftrags_nummer}</div>
+                                <div style="margin-bottom:24px; padding-bottom:24px; border-bottom:1px solid #f1f3f5; display:flex; justify-content:space-between; align-items:flex-end; font-family:'Inter', sans-serif;">
+                                    <div style="font-family:'Inter', sans-serif;">
+                                        <span style="font-size:11px; color:#adb5bd; text-transform:uppercase; font-weight:800; letter-spacing:0.5px; font-family:'Inter', sans-serif;">{"Kunde"}</span>
+                                        <div style="font-size:28px; font-weight:800; color:#1a1a1a; margin-top:4px; font-family:'Inter', sans-serif;">{&a.auftraggeber.name}</div>
+                                    </div>
+                                    <div style="text-align:center; font-family:'Inter', sans-serif;">
+                                        <span style="font-size:11px; color:#adb5bd; text-transform:uppercase; font-weight:800; letter-spacing:0.5px; font-family:'Inter', sans-serif;">{"Erstellt am"}</span>
+                                        <div style="font-size:28px; font-weight:800; color:#1a1a1a; margin-top:4px; font-family:'Inter', sans-serif;">
+                                            { 
+                                                if a.start_datum.contains('-') {
+                                                    let parts: Vec<&str> = a.start_datum.split('-').collect();
+                                                    if parts.len() == 3 { format!("{}.{}.{}", parts[2], parts[1], parts[0]) }
+                                                    else { a.start_datum.clone() }
+                                                } else {
+                                                    a.start_datum.clone()
+                                                }
+                                            }
+                                        </div>
+                                    </div>
+                                    <div style="text-align:right; font-family:'Inter', sans-serif;">
+                                        <span style="font-size:11px; color:#adb5bd; text-transform:uppercase; font-weight:800; letter-spacing:0.5px; font-family:'Inter', sans-serif;">{"Auftrags-Nr."}</span>
+                                        <div style="font-size:28px; font-weight:800; color:#1a1a1a; margin-top:4px; font-family:'Inter', sans-serif;">{&a.auftrags_nummer}</div>
                                     </div>
                                 </div>
-                                <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:32px;">
-                                    <div><h4 style="margin:0 0 12px 0; color:#adb5bd; font-size:11px; text-transform:uppercase;">{"📦 Koffer-Aufbau"}</h4><div style="font-size:14px; line-height:1.6;"><div style="font-weight:700;">{&a.koffer.hersteller}</div><div>{"SN: "}{&a.koffer.seriennummer}</div><div>{"Baujahr: "}{a.koffer.baujahr}</div></div></div>
-                                    <div><h4 style="margin:0 0 12px 0; color:#fa5252; font-size:11px; text-transform:uppercase;">{"🚗 Altes Fahrzeug"}</h4><div style="font-size:14px; line-height:1.6;"><div style="font-weight:700;">{&a.spender_fahrgestell.kennzeichen}</div><div style="font-family:monospace; font-size:12px;">{&a.spender_fahrgestell.vin}</div><div>{format!("{:.0} km", a.spender_fahrgestell.kilometerstand)}</div></div></div>
-                                    <div><h4 style="margin:0 0 12px 0; color:#40c057; font-size:11px; text-transform:uppercase;">{"🚚 Neues Fahrzeug"}</h4><div style="font-size:14px; line-height:1.6;"><div style="font-weight:700;">{&a.empfaenger_fahrgestell.kennzeichen}</div><div style="font-family:monospace; font-size:12px;">{&a.empfaenger_fahrgestell.vin}</div><div>{format!("{:.0} km", a.empfaenger_fahrgestell.kilometerstand)}</div></div></div>
-                                </div>
                             </div>
+                            <div style={card}><h3>{"📦 Koffer-Aufbau"}</h3><div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:10px; background:#f8f9fa; padding:15px; border-radius:12px;"><div style="display:flex; flex-direction:column; gap:4px;"><label style="font-size:10px; font-weight:800; color:#adb5bd; margin-left:4px;">{"HERSTELLER"}</label><div style={inp}>{&a.koffer.hersteller}</div></div><div style="display:flex; flex-direction:column; gap:4px;"><label style="font-size:10px; font-weight:800; color:#adb5bd; margin-left:4px;">{"SERIENNUMMER"}</label><div style={inp}>{&a.koffer.seriennummer}</div></div><div style="display:flex; flex-direction:column; gap:4px;"><label style="font-size:10px; font-weight:800; color:#adb5bd; margin-left:4px;">{"BAUJAHR"}</label><div style={inp}>{a.koffer.baujahr}</div></div></div></div>
+                            <div style={card}><h3>{"🚗 Altes Fahrzeug"}</h3><div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:10px; background:#f8f9fa; padding:15px; border-radius:12px;"><div style="display:flex; flex-direction:column; gap:4px;"><label style="font-size:10px; font-weight:800; color:#adb5bd; margin-left:4px;">{"KENNZEICHEN"}</label><div style={inp}>{&a.spender_fahrgestell.kennzeichen}</div></div><div style="display:flex; flex-direction:column; gap:4px;"><label style="font-size:10px; font-weight:800; color:#adb5bd; margin-left:4px;">{"VIN"}</label><div style={inp}>{&a.spender_fahrgestell.vin}</div></div><div style="display:flex; flex-direction:column; gap:4px;"><label style="font-size:10px; font-weight:800; color:#adb5bd; margin-left:4px;">{"KILOMETERSTAND"}</label><div style={inp}>{format!("{:.0} km", a.spender_fahrgestell.kilometerstand)}</div></div></div></div>
+                            <div style={card}><h3>{"🚚 Neues Fahrzeug"}</h3><div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:10px; background:#f8f9fa; padding:15px; border-radius:12px;"><div style="display:flex; flex-direction:column; gap:4px;"><label style="font-size:10px; font-weight:800; color:#adb5bd; margin-left:4px;">{"KENNZEICHEN"}</label><div style={inp}>{&a.empfaenger_fahrgestell.kennzeichen}</div></div><div style="display:flex; flex-direction:column; gap:4px;"><label style="font-size:10px; font-weight:800; color:#adb5bd; margin-left:4px;">{"VIN"}</label><div style={inp}>{&a.empfaenger_fahrgestell.vin}</div></div><div style="display:flex; flex-direction:column; gap:4px;"><label style="font-size:10px; font-weight:800; color:#adb5bd; margin-left:4px;">{"KILOMETERSTAND"}</label><div style={inp}>{format!("{:.0} km", a.empfaenger_fahrgestell.kilometerstand)}</div></div></div></div>
                             <div style={card}>
                                 <h3>{"🛠 Teileliste"}</h3>
                                 <table style="width:100%; border-collapse:collapse; margin-bottom:20px;">
@@ -262,7 +275,7 @@ fn app() -> Html {
                             </div>
                             <div style={card}>
                                 <label style="font-size:11px; font-weight:800; color:#adb5bd; text-transform:uppercase;">{"Umsatzerwartung (€)"}</label>
-                                <input style={format!("{}; margin-top:8px; font-size:24px; font-weight:800; color:#006666;", inp)} type="number" value={a.umsatz.to_string()} oninput={let nr=nr_str.clone(); let m=management.clone(); let s=save.clone(); move |e: InputEvent| { let mut mm=(*m).clone(); if let Some(x)=mm.auftraege.iter_mut().find(|x| x.auftrags_nummer==nr) { x.umsatz=e.target_unchecked_into::<web_sys::HtmlInputElement>().value().parse().unwrap_or(0.0); s.emit(mm); }}} />
+                                <input style={format!("{}; margin-top:8px; font-size:24px; font-weight:800; color:#006666;", inp)} type="number" value={a.umsatz.to_string()} oninput={let nr=nr_str.clone(); let m=management.clone(); let s=save.clone(); move |e: InputEvent| { let mut mm=(*m).clone(); if let Some(x)=mm.auftraege.iter_mut().find(|x| x.auftrags_nummer==nr) { x.umsatz=e.target_unchecked_into::<web_sys::HtmlSelectElement>().value().parse().unwrap_or(0.0); s.emit(mm); }}} />
                             </div>
                         </div>
                     }
